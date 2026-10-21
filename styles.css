@@ -23,10 +23,11 @@ nav button{flex:1;background:none;border:0;color:var(--mu);padding:7px 2px;font-
 nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 nav button[aria-current=page]{color:#fff;background:rgba(255,255,255,.22);box-shadow:var(--edge)}
 button,select,input,textarea{font:inherit;color:var(--tx)}button{cursor:pointer}
-.primary,.ghost,.danger{border-radius:999px;border:0;padding:10px 16px;min-height:46px;font-weight:600;transition:transform .12s;-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--edge)}
+/* No backdrop-filter here: nested blur inside a blurred card renders as a plain white box on iOS Safari. */
+.primary,.ghost,.danger{-webkit-appearance:none;appearance:none;color:#fff;border-radius:999px;border:0;padding:10px 16px;min-height:46px;font-weight:600;transition:transform .12s;box-shadow:var(--edge)}
 .primary:active,.ghost:active,.danger:active{transform:scale(.96)}
 .primary{background:linear-gradient(135deg,rgba(10,132,255,.85),rgba(94,92,230,.7))}
-.ghost{background:rgba(255,255,255,.16)}.danger{background:rgba(255,69,58,.18);color:#ffb3ad}
+.ghost{background:rgba(255,255,255,.2)}.danger{background:rgba(255,69,58,.18);color:#ffb3ad}
 .row{display:flex;gap:10px;margin:10px 0;flex-wrap:wrap}.row>*{flex:1}
 label{display:block;margin:10px 0;color:var(--mu);font-size:.85rem}
 input,select,textarea{display:block;width:100%;margin-top:5px;background:rgba(255,255,255,.12);border:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 0 0 1px rgba(255,255,255,.12);border-radius:16px;padding:10px 14px;min-height:46px}
@@ -38,7 +39,7 @@ li:last-child button.item{border-bottom:0}
 .tag.peptide{background:rgba(100,210,255,.25);color:var(--pep)}.tag.steroid{background:rgba(255,159,10,.25);color:var(--ste)}.tag.weight{background:rgba(48,209,88,.25);color:#6ee58b}
 .seg{display:flex;border-radius:999px;padding:4px;margin:0 0 12px;gap:2px}
 .seg>button,.seg>label{flex:1;margin:0;position:relative;text-align:center}
-.seg>button{background:none;border:0;border-radius:999px;padding:9px 4px;color:var(--mu);font-weight:600}
+.seg>button{-webkit-appearance:none;appearance:none;background:none;border:0;border-radius:999px;padding:9px 4px;color:var(--mu);font-weight:600}
 .seg>button.on{background:rgba(255,255,255,.28);color:#fff;box-shadow:var(--edge)}
 .seg input{position:absolute;opacity:0;inset:0;margin:0;min-height:0}
 .seg span{display:block;padding:9px 4px;border-radius:999px;color:var(--mu);font-weight:600}
