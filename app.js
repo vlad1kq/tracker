@@ -20,6 +20,8 @@ const fmtW = kg => (S.unit === 'lb' ? kg * LB : kg).toFixed(1) + ' ' + S.unit;
 const pName = id => (S.peptides.find(p => p.id === id) || { name: '(removed)' }).name;
 const cat = id => ((S.peptides.find(p => p.id === id) || {}).category === 'steroid' ? 'steroid' : 'peptide');
 const CL = { peptide: 'Peptide', steroid: 'Steroid' };
+const UNITS = ['mg', 'mcg', 'IU', 'ml'];
+const fmtAmt = r => r.amount ? `${+r.amount.toFixed(3)} ${r.unit}` : '';
 const tag = c => `<span class="tag ${c}">${CL[c]}</span>`;
 const catBar = () => `<div class="seg" role="group" aria-label="Category">${[['all', 'All'], ['peptide', 'Peptides'], ['steroid', 'Steroids']].map(([v, l]) => `<button data-a="cat" data-v="${v}" class="${S.cat === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const mc = c => S.logs.filter(l => { const d = new Date(l.ts), n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && cat(l.peptideId) === c; }).length;
@@ -123,11 +125,15 @@ function logForm(r) {
     <label>Entry<select name="p" required>${['peptide', 'steroid'].map(grp).join('')}</select></label>
     <label>Date<input type="date" name="d" required value="${t.date}"></label>
     <label>Time<input type="time" name="t" required value="${t.time}"></label>
+    <label>Amount (optional)<div class="row"><input type="number" name="a" step="any" min="0" inputmode="decimal" placeholder="amount" value="${r && r.amount ? r.amount : ''}"><select name="u" aria-label="Unit">${UNITS.map(u => `<option ${((r && r.unit) || 'mg') === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></label>
     <label>Note (optional)<textarea name="n" maxlength="500">${esc(r && r.note)}</textarea></label>`,
   async f => {
     const ts = toISO(f.get('d'), f.get('t'));
     if (!f.get('d') || !f.get('t') || isNaN(new Date(ts))) return 'Please enter a valid date and time.';
-    await DB.put('logs', { ...(r || {}), peptideId: +f.get('p'), ts, note: f.get('n').trim() });
+    const raw = f.get('a').trim(), amt = raw === '' ? null : parseFloat(raw), unit = f.get('u');
+    if (amt !== null && (!isFinite(amt) || amt <= 0 || amt > 100000)) return 'Please enter a valid amount.';
+    if (!UNITS.includes(unit)) return 'Please choose a unit.';
+    await DB.put('logs', { ...(r || {}), peptideId: +f.get('p'), ts, note: f.get('n').trim(), amount: amt, unit: amt === null ? null : unit });
   });
 }
 function weightForm(r) {
@@ -163,7 +169,7 @@ function peptideForm(r) {
     await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: f.get('c') === 'steroid' ? 'steroid' : 'peptide', note: f.get('o').trim(), everyDays: days, at: f.get('at') || '09:00' });
   });
 }
-const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
+const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p>${r.amount ? `<p class="big">${fmtAmt(r)}</p>` : ''}<p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
 const showWeight = r => openDetail(fmtW(r.kg), `<p>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p>`, () => weightForm(r), () => DB.del('weights', r.id));
 
 /* ---------- charts ---------- */
@@ -203,7 +209,7 @@ function vHome() {
   <div class="card" style="margin-top:12px"><small>Records created this month</small><div class="big">${month || 0}</div><small>${mc('peptide')} peptide · ${mc('steroid')} steroid logs</small></div>
   <div class="row"><button class="primary" data-a="newlog">Log entry</button><button class="primary" data-a="newweight">Log weight</button></div>
   ${remCard()}
-  <div class="card"><h2>Recent activity</h2>${recent.length ? `<ul>${recent.map(r => `<li><button class="item" data-a="${r.k === 'l' ? 'showlog' : 'showw'}" data-id="${r.id}">${r.k === 'l' ? tag(cat(r.peptideId)) : '<span class="tag weight">Weight</span>'}${r.k === 'l' ? esc(pName(r.peptideId)) : fmtW(r.kg)}<br><small>${fmtDT(r.ts)}</small></button></li>`).join('')}</ul>` : empty('Nothing recorded yet.')}</div>`;
+  <div class="card"><h2>Recent activity</h2>${recent.length ? `<ul>${recent.map(r => `<li><button class="item" data-a="${r.k === 'l' ? 'showlog' : 'showw'}" data-id="${r.id}">${r.k === 'l' ? tag(cat(r.peptideId)) : '<span class="tag weight">Weight</span>'}${r.k === 'l' ? esc(pName(r.peptideId)) : fmtW(r.kg)}<br><small>${fmtDT(r.ts)}${r.k === 'l' && r.amount ? ' · ' + fmtAmt(r) : ''}</small></button></li>`).join('')}</ul>` : empty('Nothing recorded yet.')}</div>`;
 }
 function vLog() {
   let l = [...S.logs].sort((a, b) => b.ts.localeCompare(a.ts));
@@ -214,7 +220,7 @@ function vLog() {
   return `<div class="row"><button class="primary" data-a="newlog">Log entry</button></div>
   ${catBar()}<div class="card"><h2>History</h2><div class="row"><label>Entry<select id="fp"><option value="">All</option>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<option value="${p.id}" ${+S.f.p === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
   <label>From<input type="date" id="ff" value="${S.f.from}"></label><label>To<input type="date" id="ft" value="${S.f.to}"></label></div>
-  ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
+  ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.amount ? ' · ' + fmtAmt(r) : ''}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
   <div class="card"><h2>Entries</h2><button class="ghost" data-a="newpep">Add entry</button>
   ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}${p.everyDays ? ' · every ' + p.everyDays + ' d' : ''}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button> ${p.everyDays ? `<button class="ghost" data-a="ics" data-id="${p.id}">Calendar</button>` : ''}<button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
 }
@@ -264,6 +270,7 @@ async function doImport(file) {
     if (e) return toast(e);
     if (!confirm(`Replace ALL current data with ${d.logs.length} peptide records, ${d.weights.length} weights, ${d.peptides.length} peptides?`)) return;
     d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
+    d.logs.forEach(l => { const ok = typeof l.amount === 'number' && isFinite(l.amount) && l.amount > 0 && UNITS.includes(l.unit); l.amount = ok ? l.amount : null; l.unit = ok ? l.unit : null; });
     await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, meta: [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }, ...(S.bg ? [{ key: 'bg', value: S.bg }] : [])] });
     await load(); render(); toast('Import complete.');
   } catch (x) { toast('Import failed: ' + x.message); }
