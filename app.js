@@ -3,7 +3,15 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
 const LB = 2.20462262;
-const S = { view: 'home', unit: 'kg', range: '30', peptides: [], logs: [], weights: [], cat: 'all', f: { p: '', from: '', to: '' }, charts: {} };
+const PRESETS = [
+  { id: 'aurora', name: 'Aurora', css: 'radial-gradient(900px 500px at 90% -10%,#5e5ce6,transparent 60%),radial-gradient(700px 400px at -10% 5%,#0a84ff,transparent 60%),#05060a' },
+  { id: 'ocean', name: 'Ocean', css: 'linear-gradient(160deg,#0a3d91,#1e88e5 50%,#7fd6ff)' },
+  { id: 'sunset', name: 'Sunset', css: 'linear-gradient(160deg,#ff7e5f,#c2417c 55%,#4b2a8f)' },
+  { id: 'forest', name: 'Forest', css: 'linear-gradient(160deg,#0b3b2e,#1f7a5a 55%,#8bd3a8)' },
+  { id: 'violet', name: 'Violet', css: 'linear-gradient(160deg,#2b1055,#7b4bd6 55%,#d7a8ff)' },
+  { id: 'graphite', name: 'Graphite', css: 'linear-gradient(160deg,#2a2a31,#0a0a0d)' }
+];
+const S = { bg: null, view: 'home', unit: 'kg', range: '30', peptides: [], logs: [], weights: [], cat: 'all', f: { p: '', from: '', to: '' }, charts: {} };
 const parts = (d = new Date()) => { d = new Date(d); return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` }; };
 const toISO = (d, t) => new Date(`${d}T${t || '12:00'}`).toISOString();
 const fmtDT = i => new Date(i).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -20,9 +28,33 @@ const toast = m => { const t = $('#toast'); t.textContent = m; t.style.display =
 
 async function load() {
   [S.peptides, S.logs, S.weights] = await Promise.all([DB.all('peptides'), DB.all('logs'), DB.all('weights')]);
-  const u = (await DB.all('meta')).find(m => m.key === 'unit');
-  S.unit = u ? u.value : 'kg';
+  const meta = await DB.all('meta'), u = meta.find(m => m.key === 'unit'), bg = meta.find(m => m.key === 'bg');
+  S.unit = u ? u.value : 'kg'; S.bg = bg ? bg.value : null; applyBg();
 }
+
+/* ---------- background ---------- */
+function applyBg() {
+  const b = S.bg;
+  const v = b && b.type === 'image' ? `url("${b.data}")` : (PRESETS.find(p => b && p.id === b.id) || PRESETS[0]).css;
+  document.body.style.setProperty('--bg-img', v);
+}
+/** Downscale a chosen photo so it stays small in IndexedDB. */
+function readBg(file) {
+  return new Promise((res, rej) => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(u);
+      res(c.toDataURL('image/jpeg', .82));
+    };
+    img.onerror = () => rej(new Error('Unsupported image'));
+    img.src = u;
+  });
+}
+const appearance = () => `<div class="card"><h2>Appearance</h2><div class="sw">${PRESETS.map(p => `<button class="swb ${S.bg && S.bg.type === 'preset' && S.bg.id === p.id || (!S.bg && p.id === 'aurora') ? 'on' : ''}" data-a="bg" data-id="${p.id}" style="background:${p.css}" aria-label="${p.name}"></button>`).join('')}</div>
+  <div class="row"><button class="ghost" data-a="bgphoto">Choose photo</button><button class="ghost" data-a="bgreset">Reset</button></div><input type="file" id="bgfile" accept="image/*" hidden>
+  <small>Your photo is stored only on this device and is not included in backups.</small></div>`;
 
 /* ---------- dialogs ---------- */
 function openForm(title, body, onSave) {
@@ -104,7 +136,7 @@ function mk(id, cfg) {
   const c = document.getElementById(id); if (!c) return;
   if (S.charts[id]) S.charts[id].destroy();
   if (typeof Chart === 'undefined') { c.parentElement.innerHTML = '<p class="empty">Chart.js is missing. Add vendor/chart.umd.js (see README).</p>'; return; }
-  Chart.defaults.color = '#a1a1aa'; Chart.defaults.borderColor = '#2c2c2e';
+  Chart.defaults.color = 'rgba(255,255,255,.75)'; Chart.defaults.borderColor = 'rgba(255,255,255,.12)';
   S.charts[id] = new Chart(c, { ...cfg, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, ...cfg.options } });
 }
 const weightsInRange = () => { const d = S.range === 'all' ? 0 : +S.range; const cut = d ? Date.now() - d * 864e5 : 0; return S.weights.filter(w => new Date(w.ts) >= cut).sort(byTs); };
@@ -163,7 +195,7 @@ function vCharts() {
   <div class="card"><h2>Records by entry</h2><div class="cv"><canvas id="c2" role="img" aria-label="Records grouped by peptide"></canvas></div></div>`;
 }
 function vSettings() {
-  return `<div class="card"><h2>Weight unit</h2><select id="unit"><option value="kg" ${S.unit === 'kg' ? 'selected' : ''}>Kilograms</option><option value="lb" ${S.unit === 'lb' ? 'selected' : ''}>Pounds</option></select><small>Values are always stored in kg.</small></div>
+  return `${appearance()}<div class="card"><h2>Weight unit</h2><select id="unit"><option value="kg" ${S.unit === 'kg' ? 'selected' : ''}>Kilograms</option><option value="lb" ${S.unit === 'lb' ? 'selected' : ''}>Pounds</option></select><small>Values are always stored in kg.</small></div>
   <div class="card"><h2>Backup</h2><div class="row"><button class="ghost" data-a="export">Export JSON</button><button class="ghost" data-a="import">Import JSON</button></div><input type="file" id="file" accept="application/json,.json" hidden>
   <small>A backup file contains private information. Store it safely. Importing replaces all current data.</small></div>
   <div class="card"><h2>Privacy</h2><small>All records stay in this browser's IndexedDB on this device. Nothing is sent anywhere and there is no sync or analytics. Data can be lost if website data is cleared or the device is lost, so export backups regularly. This app does not encrypt data. It is a logging tool only and gives no medical advice, doses, or reminders.</small></div>
@@ -195,7 +227,7 @@ async function doImport(file) {
     if (e) return toast(e);
     if (!confirm(`Replace ALL current data with ${d.logs.length} peptide records, ${d.weights.length} weights, ${d.peptides.length} peptides?`)) return;
     d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; });
-    await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, meta: [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }] });
+    await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, meta: [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }, ...(S.bg ? [{ key: 'bg', value: S.bg }] : [])] });
     await load(); render(); toast('Import complete.');
   } catch (x) { toast('Import failed: ' + x.message); }
 }
@@ -206,7 +238,10 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-a]'); if (!b) return;
   const id = +b.dataset.id, a = b.dataset.a;
   try {
-    if (a === 'cat') { S.cat = b.dataset.v; render(); } else if (a === 'newlog') logForm(); else if (a === 'newweight') weightForm(); else if (a === 'newpep') peptideForm();
+    if (a === 'bg') { S.bg = { type: 'preset', id: b.dataset.id }; await DB.put('meta', { key: 'bg', value: S.bg }); applyBg(); render(); }
+    else if (a === 'bgphoto') $('#bgfile').click();
+    else if (a === 'bgreset') { await DB.del('meta', 'bg'); S.bg = null; applyBg(); render(); }
+    else if (a === 'cat') { S.cat = b.dataset.v; render(); } else if (a === 'newlog') logForm(); else if (a === 'newweight') weightForm(); else if (a === 'newpep') peptideForm();
     else if (a === 'showlog') showLog(S.logs.find(x => x.id === id)); else if (a === 'showw') showWeight(S.weights.find(x => x.id === id));
     else if (a === 'renpep') peptideForm(S.peptides.find(x => x.id === id));
     else if (a === 'arcpep') { const p = S.peptides.find(x => x.id === id); await DB.put('peptides', { ...p, archived: !p.archived }); await load(); render(); }
@@ -225,6 +260,7 @@ document.addEventListener('change', async e => {
   if (t.id === 'range') { S.range = t.value; render(); }
   else if (t.id === 'fp') { S.f.p = t.value; render(); } else if (t.id === 'ff') { S.f.from = t.value; render(); } else if (t.id === 'ft') { S.f.to = t.value; render(); }
   else if (t.id === 'unit') { try { await DB.put('meta', { key: 'unit', value: t.value }); S.unit = t.value; render(); } catch (x) { toast('Error: ' + x.message); } }
+  else if (t.id === 'bgfile' && t.files[0]) { try { S.bg = { type: 'image', data: await readBg(t.files[0]) }; await DB.put('meta', { key: 'bg', value: S.bg }); applyBg(); render(); } catch (x) { toast('Could not use image: ' + x.message); } t.value = ''; }
   else if (t.id === 'file' && t.files[0]) { await doImport(t.files[0]); t.value = ''; }
 });
 

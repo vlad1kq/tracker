@@ -1,7 +1,7 @@
 'use strict';
 /* Caches only static app files (same-origin GET). Personal data lives in IndexedDB and never passes through here.
    To ship an update: change CACHE below; old caches are deleted on activate. */
-const CACHE = 'tracker-v2';
+const CACHE = 'tracker-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'db.js', 'manifest.json',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'vendor/chart.umd.js'];
 self.addEventListener('install', e => {
