@@ -32,6 +32,36 @@ async function load() {
   S.unit = u ? u.value : 'kg'; S.bg = bg ? bg.value : null; applyBg();
 }
 
+/* ---------- reminders (user-defined interval per entry; the app never suggests one) ---------- */
+const DAY = 864e5;
+function dueList() {
+  return S.peptides.filter(p => !p.archived && p.everyDays).map(p => {
+    const last = S.logs.filter(l => l.peptideId === p.id).sort(byTs).pop();
+    if (!last) return { p, state: 'none' };
+    const d = new Date(last.ts); d.setDate(d.getDate() + p.everyDays);
+    const [h, m] = (p.at || '09:00').split(':'); d.setHours(+h, +m, 0, 0);
+    const n = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / DAY);
+    return { p, due: d, n, state: n > 0 ? 'over' : n === 0 ? 'today' : 'soon' };
+  });
+}
+const rLabel = x => x.state === 'none' ? 'No log yet' : x.n > 0 ? `Overdue ${x.n} d` : x.n === 0 ? `Due today ${x.due.toLocaleTimeString(undefined, { timeStyle: 'short' })}` : `In ${-x.n} d · ${fmtD(x.due)}`;
+function remCard() {
+  const l = dueList(); if (!l.length) return '';
+  const o = { over: 0, today: 1, soon: 2, none: 3 };
+  l.sort((a, b) => o[a.state] - o[b.state] || (a.due || 0) - (b.due || 0));
+  return `<div class="card"><h2>Reminders</h2>${l.map(x => `<div class="rem"><span>${tag(x.p.category || 'peptide')}${esc(x.p.name)}</span><span class="st ${x.state}">${rLabel(x)}</span></div>`).join('')}<small>Based on the interval you set for each entry.</small></div>`;
+}
+/** Repeating calendar event so iOS Calendar delivers real alerts (a website cannot do this in the background). */
+function exportIcs(p) {
+  const x = dueList().find(v => v.p.id === p.id), [h, m] = (p.at || '09:00').split(':');
+  const st = x && x.due && x.due > new Date() ? x.due : (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(+h, +m, 0, 0); return d; })();
+  const f = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const nm = p.name.replace(/[\\;,\r\n]/g, ' ');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Private Tracker//EN', 'BEGIN:VEVENT', `UID:${crypto.randomUUID()}@private-tracker`, `DTSTAMP:${new Date().toISOString().replace(/[-:]|\.\d+/g, '')}`, `DTSTART:${f(st)}`, `RRULE:FREQ=DAILY;INTERVAL=${p.everyDays}`, `SUMMARY:Reminder: ${nm}`, 'BEGIN:VALARM', 'TRIGGER:PT0S', 'ACTION:DISPLAY', `DESCRIPTION:Reminder: ${nm}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const u = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+  const a = document.createElement('a'); a.href = u; a.download = 'reminder.ics'; a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
+}
+
 /* ---------- background ---------- */
 function applyBg() {
   const b = S.bg;
@@ -120,12 +150,17 @@ function peptideForm(r) {
   openForm(r ? 'Edit entry' : 'New entry', `
     <div class="seg" role="radiogroup" aria-label="Category">${[['peptide', 'Peptide'], ['steroid', 'Steroid']].map(([v, l]) => `<label><input type="radio" name="c" value="${v}" ${(r ? r.category : 'peptide') === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
     <label>Name<input name="n" required maxlength="60" value="${esc(r && r.name)}"></label>
-    <label>Note (optional)<textarea name="o" maxlength="500">${esc(r && r.note)}</textarea></label>`,
+    <label>Note (optional)<textarea name="o" maxlength="500">${esc(r && r.note)}</textarea></label>
+    <label>Remind me every<div class="row"><input type="number" name="ev" min="1" max="365" inputmode="numeric" placeholder="(no reminder)" value="${r && r.everyDays ? (r.everyDays % 7 ? r.everyDays : r.everyDays / 7) : ''}"><select name="eu"><option value="1">days</option><option value="7" ${r && r.everyDays && r.everyDays % 7 === 0 ? 'selected' : ''}>weeks</option></select></div></label>
+    <label>Reminder time<input type="time" name="at" value="${esc((r && r.at) || '09:00')}"></label>
+    <small>Reminders only repeat the interval you enter. The app does not suggest intervals or amounts.</small>`,
   async f => {
     const name = f.get('n').trim();
     if (!name) return 'Name is required.';
     if (S.peptides.some(p => p.name.toLowerCase() === name.toLowerCase() && (!r || p.id !== r.id))) return 'That name already exists.';
-    await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: f.get('c') === 'steroid' ? 'steroid' : 'peptide', note: f.get('o').trim() });
+    const n = parseInt(f.get('ev'), 10), days = f.get('ev') ? n * +f.get('eu') : null;
+    if (f.get('ev') && !(n >= 1 && days <= 365)) return 'Reminder interval must be between 1 and 365 days.';
+    await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: f.get('c') === 'steroid' ? 'steroid' : 'peptide', note: f.get('o').trim(), everyDays: days, at: f.get('at') || '09:00' });
   });
 }
 const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
@@ -167,6 +202,7 @@ function vHome() {
   <div class="card"><small>Last log</small><div class="big">${ll ? fmtD(ll.ts) : '—'}</div><small>${ll ? new Date(ll.ts).toLocaleTimeString(undefined, { timeStyle: 'short' }) : 'No entries'}</small></div></div>
   <div class="card" style="margin-top:12px"><small>Records created this month</small><div class="big">${month || 0}</div><small>${mc('peptide')} peptide · ${mc('steroid')} steroid logs</small></div>
   <div class="row"><button class="primary" data-a="newlog">Log entry</button><button class="primary" data-a="newweight">Log weight</button></div>
+  ${remCard()}
   <div class="card"><h2>Recent activity</h2>${recent.length ? `<ul>${recent.map(r => `<li><button class="item" data-a="${r.k === 'l' ? 'showlog' : 'showw'}" data-id="${r.id}">${r.k === 'l' ? tag(cat(r.peptideId)) : '<span class="tag weight">Weight</span>'}${r.k === 'l' ? esc(pName(r.peptideId)) : fmtW(r.kg)}<br><small>${fmtDT(r.ts)}</small></button></li>`).join('')}</ul>` : empty('Nothing recorded yet.')}</div>`;
 }
 function vLog() {
@@ -180,7 +216,7 @@ function vLog() {
   <label>From<input type="date" id="ff" value="${S.f.from}"></label><label>To<input type="date" id="ft" value="${S.f.to}"></label></div>
   ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
   <div class="card"><h2>Entries</h2><button class="ghost" data-a="newpep">Add entry</button>
-  ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button><button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
+  ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}${p.everyDays ? ' · every ' + p.everyDays + ' d' : ''}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button> ${p.everyDays ? `<button class="ghost" data-a="ics" data-id="${p.id}">Calendar</button>` : ''}<button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
 }
 function vWeight() {
   const w = weightsInRange(), all = [...S.weights].sort((a, b) => b.ts.localeCompare(a.ts));
@@ -199,7 +235,7 @@ function vSettings() {
   <div class="card"><h2>Backup</h2><div class="row"><button class="ghost" data-a="export">Export JSON</button><button class="ghost" data-a="import">Import JSON</button></div><input type="file" id="file" accept="application/json,.json" hidden>
   <small>A backup file contains private information. Store it safely. Importing replaces all current data.</small></div>
   <div class="card"><h2>Privacy</h2><small>All records stay in this browser's IndexedDB on this device. Nothing is sent anywhere and there is no sync or analytics. Data can be lost if website data is cleared or the device is lost, so export backups regularly. This app does not encrypt data. It is a logging tool only and gives no medical advice, doses, or reminders.</small></div>
-  <div class="card"><h2>Install on iPhone</h2><small>Open the site in Safari → Share → Add to Home Screen → Add. Notifications are not offered: iOS gives ordinary websites no reliable background execution.</small></div>
+  <div class="card"><h2>Install on iPhone</h2><small>Open the site in Safari → Share → Add to Home Screen → Add. Reminders show inside the app and on its icon badge when the app runs. A website cannot send reliable background notifications on iOS, so for real alerts use Log → Calendar on an entry to add a repeating calendar reminder (the entry name appears in your calendar).</small></div>
   <div class="card"><button class="danger" data-a="wipe">Delete all data</button></div>`;
 }
 
@@ -210,6 +246,7 @@ function render() {
   document.querySelectorAll('nav button').forEach(b => b.toggleAttribute('aria-current', b.dataset.v === S.view) || b.removeAttribute('aria-current'));
   document.querySelectorAll('nav button').forEach(b => { if (b.dataset.v === S.view) b.setAttribute('aria-current', 'page'); });
   if (S.view === 'weight') drawWeight(); if (S.view === 'charts') drawCounts();
+  try { const n = dueList().filter(x => x.state === 'over' || x.state === 'today').length; if (navigator.setAppBadge) { n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } } catch (e) { /* badge not supported */ }
 }
 
 /* ---------- backup ---------- */
@@ -226,7 +263,7 @@ async function doImport(file) {
     const d = JSON.parse(await file.text()), e = validate(d);
     if (e) return toast(e);
     if (!confirm(`Replace ALL current data with ${d.logs.length} peptide records, ${d.weights.length} weights, ${d.peptides.length} peptides?`)) return;
-    d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; });
+    d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
     await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, meta: [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }, ...(S.bg ? [{ key: 'bg', value: S.bg }] : [])] });
     await load(); render(); toast('Import complete.');
   } catch (x) { toast('Import failed: ' + x.message); }
@@ -245,6 +282,7 @@ document.addEventListener('click', async e => {
     else if (a === 'showlog') showLog(S.logs.find(x => x.id === id)); else if (a === 'showw') showWeight(S.weights.find(x => x.id === id));
     else if (a === 'renpep') peptideForm(S.peptides.find(x => x.id === id));
     else if (a === 'arcpep') { const p = S.peptides.find(x => x.id === id); await DB.put('peptides', { ...p, archived: !p.archived }); await load(); render(); }
+    else if (a === 'ics') exportIcs(S.peptides.find(x => x.id === id));
     else if (a === 'import') $('#file').click();
     else if (a === 'export') {
       const data = { app: 'private-tracker', version: 2, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights };
@@ -264,6 +302,7 @@ document.addEventListener('change', async e => {
   else if (t.id === 'file' && t.files[0]) { await doImport(t.files[0]); t.value = ''; }
 });
 
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#dlg').open && DB._db) render(); });
 (async () => {
   try { await DB.open(); await load(); render(); }
   catch (x) { $('#view').innerHTML = `<div class="card"><h2>Storage unavailable</h2><p>${esc(x.message)}</p><p class="mu">Private browsing or blocked storage can cause this.</p></div>`; }

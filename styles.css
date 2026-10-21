@@ -53,3 +53,5 @@ dialog::backdrop{background:rgba(0,0,0,.5);-webkit-backdrop-filter:blur(6px);bac
 .err{color:var(--rd);min-height:1.2em;margin:4px 0}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(100px + env(safe-area-inset-bottom));background:rgba(40,40,48,.8);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);padding:10px 18px;border-radius:999px;display:none;max-width:90vw;box-shadow:var(--edge)}
 :focus-visible{outline:2px solid #fff;outline-offset:2px}
+.rem{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.14)}.rem:last-of-type{border-bottom:0}
+.st{font-weight:700;font-size:.85rem;text-align:right}.st.over{color:#ff8a80}.st.today{color:var(--ste)}.st.soon,.st.none{color:var(--mu)}
