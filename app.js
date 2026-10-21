@@ -3,13 +3,18 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
 const LB = 2.20462262;
-const S = { view: 'home', unit: 'kg', range: '30', peptides: [], logs: [], weights: [], f: { p: '', from: '', to: '' }, charts: {} };
+const S = { view: 'home', unit: 'kg', range: '30', peptides: [], logs: [], weights: [], cat: 'all', f: { p: '', from: '', to: '' }, charts: {} };
 const parts = (d = new Date()) => { d = new Date(d); return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` }; };
 const toISO = (d, t) => new Date(`${d}T${t || '12:00'}`).toISOString();
 const fmtDT = i => new Date(i).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const fmtD = i => new Date(i).toLocaleDateString(undefined, { dateStyle: 'medium' });
 const fmtW = kg => (S.unit === 'lb' ? kg * LB : kg).toFixed(1) + ' ' + S.unit;
 const pName = id => (S.peptides.find(p => p.id === id) || { name: '(removed)' }).name;
+const cat = id => ((S.peptides.find(p => p.id === id) || {}).category === 'steroid' ? 'steroid' : 'peptide');
+const CL = { peptide: 'Peptide', steroid: 'Steroid' };
+const tag = c => `<span class="tag ${c}">${CL[c]}</span>`;
+const catBar = () => `<div class="seg" role="group" aria-label="Category">${[['all', 'All'], ['peptide', 'Peptides'], ['steroid', 'Steroids']].map(([v, l]) => `<button data-a="cat" data-v="${v}" class="${S.cat === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const mc = c => S.logs.filter(l => { const d = new Date(l.ts), n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && cat(l.peptideId) === c; }).length;
 const byTs = (a, b) => a.ts.localeCompare(b.ts);
 const toast = m => { const t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 3500); };
 
@@ -49,10 +54,11 @@ function openDetail(title, html, onEdit, onDelete) {
 /* ---------- forms ---------- */
 function logForm(r) {
   const opts = S.peptides.filter(p => !p.archived || (r && p.id === r.peptideId));
-  if (!opts.length) { toast('Add a peptide first (Log tab → Peptides).'); return; }
+  if (!opts.length) { toast('Add an entry first (Log tab → Entries).'); return; }
+  const grp = c => { const o = opts.filter(p => (p.category || 'peptide') === c); return o.length ? `<optgroup label="${CL[c]}s">${o.map(p => `<option value="${p.id}" ${r && r.peptideId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : ''; };
   const t = parts(r ? r.ts : undefined);
-  openForm(r ? 'Edit log entry' : 'Log peptide', `
-    <label>Peptide<select name="p" required>${opts.map(p => `<option value="${p.id}" ${r && r.peptideId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+  openForm(r ? 'Edit log entry' : 'Log entry', `
+    <label>Entry<select name="p" required>${['peptide', 'steroid'].map(grp).join('')}</select></label>
     <label>Date<input type="date" name="d" required value="${t.date}"></label>
     <label>Time<input type="time" name="t" required value="${t.time}"></label>
     <label>Note (optional)<textarea name="n" maxlength="500">${esc(r && r.note)}</textarea></label>`,
@@ -79,17 +85,18 @@ function weightForm(r) {
   });
 }
 function peptideForm(r) {
-  openForm(r ? 'Rename peptide' : 'New peptide', `
+  openForm(r ? 'Edit entry' : 'New entry', `
+    <div class="seg" role="radiogroup" aria-label="Category">${[['peptide', 'Peptide'], ['steroid', 'Steroid']].map(([v, l]) => `<label><input type="radio" name="c" value="${v}" ${(r ? r.category : 'peptide') === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
     <label>Name<input name="n" required maxlength="60" value="${esc(r && r.name)}"></label>
     <label>Note (optional)<textarea name="o" maxlength="500">${esc(r && r.note)}</textarea></label>`,
   async f => {
     const name = f.get('n').trim();
     if (!name) return 'Name is required.';
     if (S.peptides.some(p => p.name.toLowerCase() === name.toLowerCase() && (!r || p.id !== r.id))) return 'That name already exists.';
-    await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, note: f.get('o').trim() });
+    await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: f.get('c') === 'steroid' ? 'steroid' : 'peptide', note: f.get('o').trim() });
   });
 }
-const showLog = r => openDetail(pName(r.peptideId), `<p>${fmtDT(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
+const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
 const showWeight = r => openDetail(fmtW(r.kg), `<p>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p>`, () => weightForm(r), () => DB.del('weights', r.id));
 
 /* ---------- charts ---------- */
@@ -107,13 +114,14 @@ function drawWeight() {
   mk('cw', { type: 'line', data: { labels: w.map(x => x.hasTime ? fmtDT(x.ts) : fmtD(x.ts)), datasets: [{ data: w.map(x => +(S.unit === 'lb' ? x.kg * LB : x.kg).toFixed(1)), borderColor: '#0a84ff', backgroundColor: '#0a84ff', tension: .2, pointRadius: 3 }] }, options: { scales: { x: { ticks: { maxTicksLimit: 5 } }, y: { title: { display: true, text: S.unit } } } } });
 }
 function drawCounts() {
-  if (S.logs.length) {
-    const perDay = {}; S.logs.forEach(l => { const k = parts(l.ts).date; perDay[k] = (perDay[k] || 0) + 1; });
-    const keys = Object.keys(perDay).sort();
-    mk('c1', { type: 'bar', data: { labels: keys.map(k => fmtD(k + 'T12:00')), datasets: [{ data: keys.map(k => perDay[k]), backgroundColor: '#0a84ff' }] }, options: { scales: { x: { ticks: { maxTicksLimit: 5 } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } });
-    const per = {}; S.logs.forEach(l => { const n = pName(l.peptideId); per[n] = (per[n] || 0) + 1; });
-    mk('c2', { type: 'bar', data: { labels: Object.keys(per), datasets: [{ data: Object.values(per), backgroundColor: '#30d158' }] }, options: { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } } });
-  }
+  if (!S.logs.length) return;
+  const days = {}, C = { peptide: '#64d2ff', steroid: '#ff9f0a' };
+  S.logs.forEach(l => { const k = parts(l.ts).date; (days[k] = days[k] || { peptide: 0, steroid: 0 })[cat(l.peptideId)]++; });
+  const keys = Object.keys(days).sort();
+  mk('c1', { type: 'bar', data: { labels: keys.map(k => fmtD(k + 'T12:00')), datasets: ['peptide', 'steroid'].map(c => ({ label: CL[c], data: keys.map(k => days[k][c]), backgroundColor: C[c], borderRadius: 4 })) }, options: { plugins: { legend: { display: true } }, scales: { x: { stacked: true, ticks: { maxTicksLimit: 5 } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } } });
+  const per = {}; S.logs.forEach(l => { const n = pName(l.peptideId); per[n] = per[n] || { n: 0, c: cat(l.peptideId) }; per[n].n++; });
+  const names = Object.keys(per);
+  mk('c2', { type: 'bar', data: { labels: names, datasets: [{ data: names.map(n => per[n].n), backgroundColor: names.map(n => C[per[n].c]), borderRadius: 4 }] }, options: { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } } });
 }
 
 /* ---------- views ---------- */
@@ -124,22 +132,23 @@ function vHome() {
   const recent = [...S.logs.map(l => ({ ...l, k: 'l' })), ...S.weights.map(w => ({ ...w, k: 'w' }))].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 8);
   return `<p class="mu">${now.toLocaleDateString(undefined, { dateStyle: 'full' })}</p>
   <div class="grid"><div class="card"><small>Latest weight</small><div class="big">${lw ? fmtW(lw.kg) : '—'}</div><small>${lw ? fmtD(lw.ts) : 'No entries'}</small></div>
-  <div class="card"><small>Last peptide log</small><div class="big">${ll ? fmtD(ll.ts) : '—'}</div><small>${ll ? new Date(ll.ts).toLocaleTimeString(undefined, { timeStyle: 'short' }) : 'No entries'}</small></div></div>
-  <div class="card" style="margin-top:12px"><small>Records created this month</small><div class="big">${month || 0}</div></div>
-  <div class="row"><button class="primary" data-a="newlog">Log peptide</button><button class="primary" data-a="newweight">Log weight</button></div>
-  <div class="card"><h2>Recent activity</h2>${recent.length ? `<ul>${recent.map(r => `<li><button class="item" data-a="${r.k === 'l' ? 'showlog' : 'showw'}" data-id="${r.id}"><span class="tag">${r.k === 'l' ? 'peptide' : 'weight'}</span>${r.k === 'l' ? esc(pName(r.peptideId)) : fmtW(r.kg)}<br><small>${fmtDT(r.ts)}</small></button></li>`).join('')}</ul>` : empty('Nothing recorded yet.')}</div>`;
+  <div class="card"><small>Last log</small><div class="big">${ll ? fmtD(ll.ts) : '—'}</div><small>${ll ? new Date(ll.ts).toLocaleTimeString(undefined, { timeStyle: 'short' }) : 'No entries'}</small></div></div>
+  <div class="card" style="margin-top:12px"><small>Records created this month</small><div class="big">${month || 0}</div><small>${mc('peptide')} peptide · ${mc('steroid')} steroid logs</small></div>
+  <div class="row"><button class="primary" data-a="newlog">Log entry</button><button class="primary" data-a="newweight">Log weight</button></div>
+  <div class="card"><h2>Recent activity</h2>${recent.length ? `<ul>${recent.map(r => `<li><button class="item" data-a="${r.k === 'l' ? 'showlog' : 'showw'}" data-id="${r.id}">${r.k === 'l' ? tag(cat(r.peptideId)) : '<span class="tag weight">Weight</span>'}${r.k === 'l' ? esc(pName(r.peptideId)) : fmtW(r.kg)}<br><small>${fmtDT(r.ts)}</small></button></li>`).join('')}</ul>` : empty('Nothing recorded yet.')}</div>`;
 }
 function vLog() {
   let l = [...S.logs].sort((a, b) => b.ts.localeCompare(a.ts));
+  if (S.cat !== 'all') l = l.filter(x => cat(x.peptideId) === S.cat);
   if (S.f.p) l = l.filter(x => x.peptideId === +S.f.p);
   if (S.f.from) l = l.filter(x => parts(x.ts).date >= S.f.from);
   if (S.f.to) l = l.filter(x => parts(x.ts).date <= S.f.to);
-  return `<div class="row"><button class="primary" data-a="newlog">Log peptide</button></div>
-  <div class="card"><h2>History</h2><div class="row"><label>Peptide<select id="fp"><option value="">All</option>${S.peptides.map(p => `<option value="${p.id}" ${+S.f.p === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+  return `<div class="row"><button class="primary" data-a="newlog">Log entry</button></div>
+  ${catBar()}<div class="card"><h2>History</h2><div class="row"><label>Entry<select id="fp"><option value="">All</option>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<option value="${p.id}" ${+S.f.p === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
   <label>From<input type="date" id="ff" value="${S.f.from}"></label><label>To<input type="date" id="ft" value="${S.f.to}"></label></div>
-  ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}"><strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
-  <div class="card"><h2>Peptides</h2><button class="ghost" data-a="newpep">Add peptide</button>
-  ${S.peptides.length ? `<ul>${S.peptides.map(p => `<li class="row" style="align-items:center"><span style="flex:2">${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Rename</button><button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No peptides yet. Add your own names.')}</div>`;
+  ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
+  <div class="card"><h2>Entries</h2><button class="ghost" data-a="newpep">Add entry</button>
+  ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button><button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
 }
 function vWeight() {
   const w = weightsInRange(), all = [...S.weights].sort((a, b) => b.ts.localeCompare(a.ts));
@@ -151,7 +160,7 @@ function vWeight() {
 function vCharts() {
   if (!S.logs.length) return `<div class="card">${empty('Log a peptide entry to see charts.')}</div>`;
   return `<div class="card"><h2>Recorded events per day</h2><div class="cv"><canvas id="c1" role="img" aria-label="Events per day"></canvas></div></div>
-  <div class="card"><h2>Records by peptide</h2><div class="cv"><canvas id="c2" role="img" aria-label="Records grouped by peptide"></canvas></div></div>`;
+  <div class="card"><h2>Records by entry</h2><div class="cv"><canvas id="c2" role="img" aria-label="Records grouped by peptide"></canvas></div></div>`;
 }
 function vSettings() {
   return `<div class="card"><h2>Weight unit</h2><select id="unit"><option value="kg" ${S.unit === 'kg' ? 'selected' : ''}>Kilograms</option><option value="lb" ${S.unit === 'lb' ? 'selected' : ''}>Pounds</option></select><small>Values are always stored in kg.</small></div>
@@ -185,6 +194,7 @@ async function doImport(file) {
     const d = JSON.parse(await file.text()), e = validate(d);
     if (e) return toast(e);
     if (!confirm(`Replace ALL current data with ${d.logs.length} peptide records, ${d.weights.length} weights, ${d.peptides.length} peptides?`)) return;
+    d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; });
     await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, meta: [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }] });
     await load(); render(); toast('Import complete.');
   } catch (x) { toast('Import failed: ' + x.message); }
@@ -196,13 +206,13 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-a]'); if (!b) return;
   const id = +b.dataset.id, a = b.dataset.a;
   try {
-    if (a === 'newlog') logForm(); else if (a === 'newweight') weightForm(); else if (a === 'newpep') peptideForm();
+    if (a === 'cat') { S.cat = b.dataset.v; render(); } else if (a === 'newlog') logForm(); else if (a === 'newweight') weightForm(); else if (a === 'newpep') peptideForm();
     else if (a === 'showlog') showLog(S.logs.find(x => x.id === id)); else if (a === 'showw') showWeight(S.weights.find(x => x.id === id));
     else if (a === 'renpep') peptideForm(S.peptides.find(x => x.id === id));
     else if (a === 'arcpep') { const p = S.peptides.find(x => x.id === id); await DB.put('peptides', { ...p, archived: !p.archived }); await load(); render(); }
     else if (a === 'import') $('#file').click();
     else if (a === 'export') {
-      const data = { app: 'private-tracker', version: 1, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights };
+      const data = { app: 'private-tracker', version: 2, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights };
       const u = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
       const l = document.createElement('a'); l.href = u; l.download = `tracker-backup-${parts().date}.json`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
     } else if (a === 'wipe') {

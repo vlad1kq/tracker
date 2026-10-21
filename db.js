@@ -6,7 +6,7 @@ const DB = {
   open() {
     return new Promise((resolve, reject) => {
       if (!window.indexedDB) return reject(new Error('IndexedDB is not available in this browser.'));
-      const r = indexedDB.open('private-tracker', 1);
+      const r = indexedDB.open('private-tracker', 2);
       r.onupgradeneeded = e => {
         const d = r.result;
         if (e.oldVersion < 1) {
@@ -15,7 +15,13 @@ const DB = {
           d.createObjectStore('weights', { keyPath: 'id', autoIncrement: true }).createIndex('ts', 'ts');
           d.createObjectStore('meta', { keyPath: 'key' });
         }
-        // Future migrations: if (e.oldVersion < 2) { ... }  (bump the version number above)
+        if (e.oldVersion < 2) { // v2: every existing entry gets a category
+          r.transaction.objectStore('peptides').openCursor().onsuccess = ev => {
+            const c = ev.target.result;
+            if (c) { if (!c.value.category) c.update({ ...c.value, category: 'peptide' }); c.continue(); }
+          };
+        }
+        // Future migrations: if (e.oldVersion < 3) { ... }  (bump the version number above)
       };
       r.onsuccess = () => { this._db = r.result; resolve(); };
       r.onerror = () => reject(r.error);
