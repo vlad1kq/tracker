@@ -147,13 +147,14 @@ function weightForm(r) {
     <label>Weight (${S.unit})<input type="number" name="w" inputmode="decimal" step="0.1" min="1" required value="${val}"></label>
     <label>Date<input type="date" name="d" required value="${t.date}"></label>
     <label>Time (optional)<input type="time" name="t" value="${!r || r.hasTime ? (r ? t.time : t.time) : ''}"></label>
+    ${photoField(r)}
     <label>Note (optional)<textarea name="n" maxlength="500">${esc(r && r.note)}</textarea></label>`,
   async f => {
     let kg = parseFloat(f.get('w')); if (S.unit === 'lb') kg /= LB;
     if (!isFinite(kg) || kg < 1 || kg > 700) return 'Please enter a realistic weight.';
     const time = f.get('t'), ts = toISO(f.get('d'), time);
     if (!f.get('d') || isNaN(new Date(ts))) return 'Please enter a valid date.';
-    await DB.put('weights', { ...(r || {}), kg: Math.round(kg * 1000) / 1000, ts, hasTime: !!time, note: f.get('n').trim() });
+    await DB.put('weights', { ...(r || {}), kg: Math.round(kg * 1000) / 1000, ts, hasTime: !!time, note: f.get('n').trim(), photo: await photoFrom(f, r) });
   });
 }
 function peptideForm(r) {
@@ -174,7 +175,7 @@ function peptideForm(r) {
   });
 }
 const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p>${r.amount ? `<p class="big">${fmtAmt(r)}</p>` : ''}${extraLines(r)}<p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
-const showWeight = r => openDetail(fmtW(r.kg), `<p>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p>`, () => weightForm(r), () => DB.del('weights', r.id));
+const showWeight = r => openDetail(fmtW(r.kg), `<p>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p>${r.photo ? `<img class="ph" src="${r.photo}" alt="Progress photo" style="aspect-ratio:auto;max-height:55vh;object-fit:contain">` : ''}`, () => weightForm(r), () => DB.del('weights', r.id));
 
 /* ---------- charts ---------- */
 function mk(id, cfg) {
@@ -234,7 +235,7 @@ function vWeight() {
   return `<div class="row"><button class="primary" data-a="newweight">Log weight</button></div>
   <div class="card">${rangeSel()}${w.length ? '<div class="cv"><canvas id="cw" role="img" aria-label="Weight over time"></canvas></div>' : empty('No weight records in this range.')}
   <small>Charts show only recorded values. Weight changes do not by themselves indicate fat gain or loss.</small></div>
-  <div class="card"><h2>History</h2>${all.length ? `<ul>${all.map(r => `<li><button class="item" data-a="showw" data-id="${r.id}"><strong>${fmtW(r.kg)}</strong><br><small>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty('No weight records yet.')}</div>`;
+  <div class="card"><h2>History</h2>${all.length ? `<ul>${all.map(r => `<li><button class="item" data-a="showw" data-id="${r.id}"><strong>${fmtW(r.kg)}</strong>${r.photo ? ' <span class="tag">Photo</span>' : ''}<br><small>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty('No weight records yet.')}</div>`;
 }
 function vCharts() {
   if (!S.logs.length) return `<div class="card">${empty('Log a peptide entry to see charts.')}</div>`;

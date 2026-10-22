@@ -37,6 +37,7 @@ async function applyData(d) {
   const e = validate(d); if (e) return e;
   if (d.vials !== undefined && !(Array.isArray(d.vials) && d.vials.every(x => x && Number.isInteger(x.id) && Number.isInteger(x.peptideId) && typeof x.date === 'string'))) return 'Invalid vial entries.';
   if (d.metrics !== undefined && !(Array.isArray(d.metrics) && d.metrics.every(x => x && Number.isInteger(x.id) && typeof x.name === 'string' && typeof x.value === 'number' && !isNaN(new Date(x.ts))))) return 'Invalid measurement entries.';
+  d.weights.forEach(w => { if (w.photo && !(typeof w.photo === 'string' && w.photo.startsWith('data:image/'))) w.photo = null; });
   d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
   d.logs.forEach(l => { const ok = typeof l.amount === 'number' && isFinite(l.amount) && l.amount > 0 && UNITS.includes(l.unit); l.amount = ok ? l.amount : null; l.unit = ok ? l.unit : null; });
   if (!confirm(`Replace ALL current data with ${d.logs.length} entries, ${d.weights.length} weights, ${(d.metrics || []).length} measurements, ${(d.vials || []).length} vials?`)) return 'Import cancelled.';
@@ -67,9 +68,10 @@ function repeatLast() {
 }
 
 /* ---------- body measurements and lab results ---------- */
-const bodyTabs = () => `<div class="seg" role="group" aria-label="Section">${[['weight', 'Weight'], ['body', 'Measurements'], ['lab', 'Labs']].map(([v, l]) => `<button data-a="bt" data-v="${v}" class="${S.bt === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const bodyTabs = () => `<div class="seg" role="group" aria-label="Section">${[['weight', 'Weight'], ['body', 'Measures'], ['lab', 'Labs'], ['cmp', 'Compare']].map(([v, l]) => `<button data-a="bt" data-v="${v}" class="${S.bt === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 function vBody() {
   if (S.bt === 'weight') return bodyTabs() + vWeight();
+  if (S.bt === 'cmp') return vCompare();
   const all = S.metrics.filter(m => m.kind === S.bt).sort((a, b) => b.ts.localeCompare(a.ts)), names = [...new Set(all.map(m => m.name))];
   if (!names.includes(S.mn)) S.mn = names[0];
   const recs = all.filter(m => m.name === S.mn), lab = S.bt === 'lab';
@@ -169,7 +171,7 @@ function drawAmt() {
   mk('ca', { type: 'line', data: { labels: r.map(l => fmtD(l.ts)), datasets: [{ data: r.map(l => l.amount), borderColor: '#bf5af2', backgroundColor: '#bf5af2', tension: .2, pointRadius: 3 }] }, options: { scales: { x: { ticks: { maxTicksLimit: 5 } }, y: { title: { display: true, text: u } } } } });
 }
 function extraDraw() {
-  if (S.view === 'weight' && S.bt !== 'weight') drawMetric();
+  if (S.view === 'weight' && S.bt !== 'weight' && S.bt !== 'cmp') drawMetric();
   if (S.view === 'charts') drawAmt();
 }
 
@@ -200,6 +202,43 @@ function extraInit() {
   });
   document.addEventListener('change', e => {
     const t = e.target;
-    if (t.id === 'mname') { S.mn = t.value; render(); } else if (t.id === 'sa') { S.sa = t.value; render(); } else if (t.id === 'fq') { S.f.q = t.value; render(); }
+    if (t.id === 'mname') { S.mn = t.value; render(); } else if (t.id === 'sa') { S.sa = t.value; render(); } else if (t.id === 'fq') { S.f.q = t.value; render(); } else if (t.id === 'cpa') { S.ca = +t.value; render(); } else if (t.id === 'cpb') { S.cb = +t.value; render(); }
   });
+}
+
+/* ---------- weight photos and compare ---------- */
+/** Downscale a chosen photo so it stays small in IndexedDB. */
+function readPhoto(file) {
+  return new Promise((res, rej) => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(u);
+      res(c.toDataURL('image/jpeg', .72));
+    };
+    img.onerror = () => rej(new Error('Unsupported image'));
+    img.src = u;
+  });
+}
+async function photoFrom(f, r) {
+  if (f.has('rmph')) return null;
+  const file = f.get('ph'); if (file && file.size) return readPhoto(file);
+  return (r && r.photo) || null;
+}
+const photoField = r => `<label>Photo (optional)<input type="file" name="ph" accept="image/*"></label>${r && r.photo ? `<img class="ph" src="${r.photo}" alt="Current photo" style="aspect-ratio:auto;max-height:160px;width:auto;object-fit:contain"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="rmph" style="width:auto;min-height:0;margin:0">Remove photo</label>` : ''}`;
+function vCompare() {
+  const ws = [...S.weights].sort(byTs);
+  if (ws.length < 2) return bodyTabs() + `<div class="card">${empty('Log at least two weights to compare.')}</div>`;
+  if (!ws.some(w => w.id === S.ca)) S.ca = (ws.find(w => w.photo) || ws[0]).id;
+  if (!ws.some(w => w.id === S.cb)) S.cb = ws[ws.length - 1].id;
+  const A = ws.find(w => w.id === S.ca), B = ws.find(w => w.id === S.cb);
+  const when = w => w.hasTime ? fmtDT(w.ts) : fmtD(w.ts);
+  const opt = sel => ws.map(w => `<option value="${w.id}" ${w.id === sel ? 'selected' : ''}>${when(w)} · ${fmtW(w.kg)}${w.photo ? ' · 📷' : ''}</option>`).join('');
+  const col = (w, l) => `<div><small>${l}</small><div class="big">${fmtW(w.kg)}</div><small>${when(w)}</small>${w.photo ? `<img class="ph" src="${w.photo}" alt="${l} photo">` : '<div class="ph none">No photo</div>'}</div>`;
+  const dk = (B.kg - A.kg) * (S.unit === 'lb' ? LB : 1), dd = Math.round((new Date(B.ts) - new Date(A.ts)) / DAY);
+  return `${bodyTabs()}<div class="card"><div class="row"><label>From<select id="cpa">${opt(S.ca)}</select></label><label>To<select id="cpb">${opt(S.cb)}</select></label></div>
+  <div class="cmp">${col(A, 'From')}${col(B, 'To')}</div>
+  <p class="big" style="text-align:center">${dk > 0 ? '+' : ''}${dk.toFixed(1)} ${S.unit}</p>
+  <small>Difference between the two recorded values over ${dd} day${dd === 1 ? '' : 's'}. It does not show what changed in the body.</small></div>`;
 }
