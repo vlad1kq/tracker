@@ -14,7 +14,7 @@ const LAB_GROUPS = {
 const LAB_UNITS = {}; Object.values(LAB_GROUPS).flat().forEach(([n, ...u]) => { LAB_UNITS[n] = u; });
 const unitOpts = n => (LAB_UNITS[n] || []).map(u => `<option value="${esc(u)}">`).join('');
 const BODY_NAMES = ['Waist', 'Body fat %', 'Resting pulse', 'BP systolic', 'BP diastolic', 'Chest', 'Hips'];
-const snapshot = () => ({ app: 'private-tracker', version: 3, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights, vials: S.vials, metrics: S.metrics, symptoms: S.symptoms, prefs: S.prefs, courses: S.courses });
+const snapshot = () => ({ app: 'private-tracker', version: 3, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights, vials: S.vials, metrics: S.metrics, symptoms: S.symptoms, prefs: S.prefs, courses: S.courses, health: S.health });
 function saveFile(name, text, type) {
   const u = URL.createObjectURL(new Blob([text], { type })), a = document.createElement('a');
   a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
@@ -53,10 +53,12 @@ async function applyData(d) {
   if (d.courses !== undefined && !(Array.isArray(d.courses) && d.courses.every(x => x && Number.isInteger(x.id) && typeof x.name === 'string' && typeof x.start === 'string' && (x.end === null || typeof x.end === 'string')))) return 'Invalid course entries.';
   if (d.symptoms) d.symptoms.forEach(x => { x.sev = Number.isInteger(x.sev) && x.sev >= 1 && x.sev <= 5 ? x.sev : 3; });
   d.weights.forEach(w => { if (w.photo && !(typeof w.photo === 'string' && w.photo.startsWith('data:image/'))) w.photo = null; });
-  d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
+  if (d.health !== undefined) { const m = validHealth(d.health); if (m) return m; d.health = d.health.map(cleanHealth); }
+  if (d.vials) d.vials.forEach(v => { if (v.photo && !(typeof v.photo === 'string' && v.photo.startsWith('data:image/'))) v.photo = null; });
+  d.peptides.forEach(p => { p.category = ['steroid', 'other'].includes(p.category) ? p.category : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
   d.logs.forEach(l => { const ok = typeof l.amount === 'number' && isFinite(l.amount) && l.amount > 0 && UNITS.includes(l.unit); l.amount = ok ? l.amount : null; l.unit = ok ? l.unit : null; });
   if (!confirm(`Replace ALL current data with ${d.logs.length} entries, ${d.weights.length} weights, ${(d.metrics || []).length} measurements, ${(d.vials || []).length} vials?`)) return 'Import cancelled.';
-  await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, vials: d.vials || [], metrics: d.metrics || [], symptoms: d.symptoms || [], courses: d.courses || [], meta: metaFor(d) });
+  await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, vials: d.vials || [], metrics: d.metrics || [], symptoms: d.symptoms || [], courses: d.courses || [], health: d.health || [], meta: metaFor(d) });
   await load(); render(); toast('Import complete.'); return null;
 }
 async function importFile(file) {
@@ -143,14 +145,15 @@ function vialForm(v) {
     <label>Purchase / opened date<input type="date" name="d" value="${v ? v.date : parts().date}"></label>
     <label>Expiry date (optional)<input type="date" name="x" value="${esc(v && v.expiry)}"></label>
     <label>Price (optional)<input name="c" type="number" step="any" min="0" inputmode="decimal" value="${v && v.price != null ? v.price : ''}"></label>
+    ${photoField(v, false)}
     <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="ar" ${v && v.archived ? 'checked' : ''} style="width:auto;min-height:0;margin:0">Archived</label>`, async f => {
     const total = f.get('t') ? parseFloat(f.get('t')) : null, price = f.get('c') ? parseFloat(f.get('c')) : null;
     if (total !== null && !(total > 0 && total < 1e7)) return 'Total amount must be greater than 0.';
     if (price !== null && !(price >= 0 && price < 1e7)) return 'Please enter a valid price.';
-    await DB.put('vials', { ...(v || {}), peptideId: +f.get('p'), label: f.get('l').trim(), total, unit: total ? f.get('u') : null, date: f.get('d') || parts().date, expiry: f.get('x') || null, price, archived: f.has('ar') });
+    await DB.put('vials', { ...(v || {}), peptideId: +f.get('p'), label: f.get('l').trim(), total, unit: total ? f.get('u') : null, date: f.get('d') || parts().date, expiry: f.get('x') || null, price, archived: f.has('ar'), photo: await photoFrom(f, v) });
   });
 }
-const showVial = v => { const r = remaining(v); openDetail(pName(v.peptideId), `<p>${esc(v.label || '')}</p>${v.total ? `<p class="big">${+r.toFixed(3)} / ${v.total} ${v.unit}</p>` : ''}<p>Date: ${fmtD(v.date + 'T12:00')}<br>Expiry: ${v.expiry ? fmtD(v.expiry + 'T12:00') : '—'}${expired(v) ? ' (past)' : ''}<br>Price: ${v.price != null ? v.price : '—'}</p>`, () => vialForm(v), () => DB.del('vials', v.id)); };
+const showVial = v => { const r = remaining(v); openDetail(pName(v.peptideId), `<p>${esc(v.label || '')}</p>${v.total ? `<p class="big">${+r.toFixed(3)} / ${v.total} ${v.unit}</p>` : ''}<p>Date: ${fmtD(v.date + 'T12:00')}<br>Expiry: ${v.expiry ? fmtD(v.expiry + 'T12:00') : '—'}${expired(v) ? ' (past)' : ''}<br>Price: ${v.price != null ? v.price : '—'}</p>${vialExtra(v)}`, () => vialForm(v), () => DB.del('vials', v.id)); };
 
 /* ---------- statistics ---------- */
 const dayNum = k => Math.round(new Date(k + 'T12:00').getTime() / DAY);
@@ -164,7 +167,7 @@ function streaks() {
 function summary(days) {
   const cut = Date.now() - days * DAY, n = S.logs.filter(l => new Date(l.ts) >= cut), pe = n.filter(l => cat(l.peptideId) === 'peptide').length;
   const w = S.weights.filter(x => new Date(x.ts) >= cut).sort(byTs);
-  return { n: n.length, pe, st: n.length - pe, w: w.length > 1 ? `${fmtW(w[0].kg)} → ${fmtW(w[w.length - 1].kg)}` : '—' };
+  return { n: n.length, pe, st: n.filter(l => cat(l.peptideId) === 'steroid').length, w: w.length > 1 ? `${fmtW(w[0].kg)} → ${fmtW(w[w.length - 1].kg)}` : '—' };
 }
 function heat() {
   const cnt = {}; S.logs.forEach(l => { const k = parts(l.ts).date; cnt[k] = (cnt[k] || 0) + 1; });
@@ -245,7 +248,7 @@ async function photoFrom(f, r) {
   const file = f.get('ph'); if (file && file.size) return readPhoto(file);
   return (r && r.photo) || null;
 }
-const photoField = r => `<label>Photo (optional)<input type="file" name="ph" accept="image/*"></label>${r && r.photo ? `<img class="ph" src="${r.photo}" alt="Current photo" style="aspect-ratio:auto;max-height:160px;width:auto;object-fit:contain"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="rmph" style="width:auto;min-height:0;margin:0">Remove photo</label>` : ''}`;
+const photoField = (r, angle = true) => `<label>Photo (optional)<input type="file" name="ph" accept="image/*"></label>${angle ? `<label>Angle (optional)<select name="an"><option value="">—</option>${['front', 'side', 'back'].map(a => `<option value="${a}" ${r && r.angle === a ? 'selected' : ''}>${a[0].toUpperCase() + a.slice(1)}</option>`).join('')}</select></label>` : ''}${r && r.photo ? `<img class="ph" src="${r.photo}" alt="Current photo" style="aspect-ratio:auto;max-height:160px;width:auto;object-fit:contain"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="rmph" style="width:auto;min-height:0;margin:0">Remove photo</label>` : ''}`;
 function vCompare() {
   const ws = [...S.weights].sort(byTs);
   if (ws.length < 2) return bodyTabs() + `<div class="card">${empty('Log at least two weights to compare.')}</div>`;

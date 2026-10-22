@@ -11,7 +11,7 @@ function cleanPrefs(p) {
   if (Number.isInteger(p.backupDays) && p.backupDays > 0 && p.backupDays <= 365) o.backupDays = p.backupDays;
   if ([0, 1, 5, 15].includes(p.lockMin)) o.lockMin = p.lockMin;
   if (['en', 'ru'].includes(p.lang)) o.lang = p.lang; if (typeof p.blur === 'boolean') o.blur = p.blur;
-  o.hidden = (Array.isArray(p.hidden) ? p.hidden : []).filter(x => ['log', 'weight', 'stock', 'charts'].includes(x));
+  o.hidden = (Array.isArray(p.hidden) ? p.hidden : []).filter(x => ['log', 'journal', 'health', 'weight', 'stock', 'charts'].includes(x));
   o.mrem = (Array.isArray(p.mrem) ? p.mrem : []).filter(r => r && Number.isInteger(r.id) && ['weight', 'photo', 'metric'].includes(r.kind) && typeof r.name === 'string' && Number.isInteger(r.days) && r.days >= 1 && r.days <= 365).map(r => ({ id: r.id, kind: r.kind, name: r.name.slice(0, 40), days: r.days, at: /^\d\d:\d\d$/.test(r.at) ? r.at : '09:00' }));
   o.templates = (Array.isArray(p.templates) ? p.templates : []).filter(t => t && Number.isInteger(t.id) && Number.isInteger(t.peptideId) && typeof t.name === 'string').map(t => ({ id: t.id, name: t.name.slice(0, 40), peptideId: t.peptideId, amount: typeof t.amount === 'number' && t.amount > 0 ? t.amount : null, unit: UNITS.includes(t.unit) ? t.unit : null, site: typeof t.site === 'string' ? t.site.slice(0, 40) : null, vialId: Number.isInteger(t.vialId) ? t.vialId : null }));
   return o;
@@ -100,7 +100,7 @@ const eventsPlugin = w => ({ id: 'ev', afterDatasetsDraw(ch) {
   const x = ch.scales.x, y = ch.scales.y, c = ch.ctx, t0 = new Date(w[0].ts).getTime(), t1 = new Date(w[w.length - 1].ts).getTime();
   const px = ts => { const t = new Date(ts).getTime(); if (t < t0 - DAY || t > t1 + DAY) return null; let i = w.findIndex(q => new Date(q.ts).getTime() >= t); if (i < 0) i = w.length - 1; return x.getPixelForValue(i); };
   c.save();
-  S.logs.forEach(l => { const p = px(l.ts); if (p == null) return; c.fillStyle = cat(l.peptideId) === 'steroid' ? '#ff9f0a' : '#64d2ff'; c.fillRect(p - 1, y.bottom - 9, 2, 9); });
+  S.logs.forEach(l => { const p = px(l.ts); if (p == null) return; c.fillStyle = { peptide: '#64d2ff', steroid: '#ff9f0a', other: '#bf5af2' }[cat(l.peptideId)]; c.fillRect(p - 1, y.bottom - 9, 2, 9); });
   S.symptoms.forEach(s => { const p = px(s.ts); if (p == null) return; c.fillStyle = '#ff6b61'; c.fillRect(p - 1, y.top, 2, 9); });
   S.vials.forEach(v => { const p = px(v.date + 'T12:00'); if (p == null) return; c.strokeStyle = '#bf5af2'; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(p, y.top); c.lineTo(p, y.bottom); c.stroke(); });
   c.restore();

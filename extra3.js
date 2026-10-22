@@ -47,12 +47,12 @@ function courseAnalysis() {
 }
 
 /* ---------- two series on one chart, time-of-day map, chart export ---------- */
-const seriesOpts = () => [['weight', 'Weight'], ['mood', 'Feeling (avg/day)'], ['entries', 'Entries per day'], ['sym', 'Symptom severity (avg/day)'], ...[...new Set(S.metrics.map(m => m.name))].map(n => ['m:' + n, n])];
+const seriesOpts = () => [['weight', 'Weight'], ['mood', 'Feeling (avg/day)'], ['entries', 'Entries per day'], ['sym', 'Symptom severity (avg/day)'], ...[...new Set(S.metrics.map(m => m.name))].map(n => ['m:' + n, n]), ...HOPTS];
 function seriesData(k) {
   const cut = S.sp === 'all' ? 0 : Date.now() - S.sp * DAY, m = {}, add = (ts, v) => { if (new Date(ts) < cut || v == null) return; (m[parts(ts).date] = m[parts(ts).date] || []).push(v); };
   if (k === 'weight') S.weights.forEach(x => add(x.ts, +(S.unit === 'lb' ? x.kg * LB : x.kg).toFixed(2)));
   else if (k === 'mood') S.logs.forEach(l => add(l.ts, l.mood || null)); else if (k === 'entries') S.logs.forEach(l => add(l.ts, 1));
-  else if (k === 'sym') S.symptoms.forEach(y => add(y.ts, y.sev)); else S.metrics.filter(x => 'm:' + x.name === k).forEach(x => add(x.ts, x.value));
+  else if (k === 'sym') S.symptoms.forEach(y => add(y.ts, y.sev)); else if (/^[dfv]:/.test(k)) healthSeries(k, add); else S.metrics.filter(x => 'm:' + x.name === k).forEach(x => add(x.ts, x.value));
   const o = {}; for (const d in m) o[d] = k === 'entries' ? m[d].length : m[d].reduce((a, b) => a + b, 0) / m[d].length; return o;
 }
 function twoCard() {
@@ -99,7 +99,7 @@ async function bioAuth() {
 /* ---------- gestures: swipe left to delete (with Undo), pull down to refresh ---------- */
 function gestures() {
   let sx = 0, sy = 0, li = null, pull = false;
-  const STORE = { showlog: 'logs', showw: 'weights', showm: 'metrics', showv: 'vials', showsym: 'symptoms', showcourse: 'courses' };
+  const STORE = { showlog: 'logs', showw: 'weights', showm: 'metrics', showv: 'vials', showsym: 'symptoms', showcourse: 'courses', showh: 'health' };
   document.addEventListener('touchstart', e => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; li = e.target.closest('li'); if (li && !li.querySelector('button.item[data-a]')) li = null; pull = window.scrollY <= 0 && !e.target.closest('dialog,#lock,#rep'); }, { passive: true });
   document.addEventListener('touchmove', e => { const t = e.touches[0], dx = t.clientX - sx, dy = t.clientY - sy; if (li && dx < 0 && Math.abs(dx) > Math.abs(dy) * 2) { li.style.transform = `translateX(${Math.max(dx, -140)}px)`; li.style.opacity = 1 + dx / 400; } }, { passive: true });
   document.addEventListener('touchend', async e => {
@@ -116,7 +116,7 @@ function gestures() {
 function comfortCard() {
   const base = location.origin + location.pathname.replace(/index\.html$/, ''), hid = S.prefs.hidden || [];
   return `<div class="card"><h2>Language</h2><select id="lang" aria-label="Language"><option value="en" ${S.prefs.lang !== 'ru' ? 'selected' : ''}>English</option><option value="ru" ${S.prefs.lang === 'ru' ? 'selected' : ''}>Русский</option></select><small>Russian covers menus, buttons and labels; some longer texts stay in English.</small></div>
-  <div class="card"><h2>Tabs</h2>${[['log', 'Log'], ['weight', 'Body'], ['stock', 'Stock'], ['charts', 'Stats']].map(([k, l]) => `<label class="chk"><input type="checkbox" data-tab="${k}" ${hid.includes(k) ? '' : 'checked'}>${l}</label>`).join('')}<small>Home and Settings always stay visible.</small></div>
+  <div class="card"><h2>Tabs</h2>${[['log', 'Log'], ['journal', 'Journal'], ['health', 'Health'], ['weight', 'Body'], ['stock', 'Stock'], ['charts', 'Stats']].map(([k, l]) => `<label class="chk"><input type="checkbox" data-tab="${k}" ${hid.includes(k) ? '' : 'checked'}>${l}</label>`).join('')}<small>Home and Settings always stay visible.</small></div>
   <div class="card"><h2>Quick links</h2>${[['Log entry', 'log'], ['Log weight', 'weight'], ['Repeat last', 'repeat']].map(([l, a]) => `<div class="rem"><span>${l}</span><button class="ghost" data-a="copylink" data-u="${esc(base + '?a=' + a)}" style="flex:0 0 auto;min-height:34px;padding:2px 14px">Copy link</button></div>`).join('')}<small>In the Shortcuts app: New shortcut → Open URL → paste the link → Add to Home Screen. The app then opens straight to that form.</small></div>
   <div class="card"><h2>Face ID &amp; privacy</h2>${S.pin ? (S.bio ? '<button class="ghost" data-a="biooff">Disable Face ID</button>' : '<button class="ghost" data-a="bioon">Enable Face ID</button>') : '<small>Set a PIN first to enable Face ID unlock.</small>'}
   <label class="chk"><input type="checkbox" id="blurchk" ${S.prefs.blur !== false ? 'checked' : ''}>Blur the app in the app switcher</label><small>Face ID is a convenience unlock on top of the PIN, not encryption. Blurring works best when the app is added to the Home Screen; iOS may still show a snapshot in some cases.</small></div>`;
@@ -213,4 +213,5 @@ function extra3Init() {
       else if (t.dataset && t.dataset.tab) { const h = new Set(S.prefs.hidden || []); t.checked ? h.delete(t.dataset.tab) : h.add(t.dataset.tab); S.prefs.hidden = [...h]; await savePrefs(); if (h.has(S.view)) S.view = 'home'; render(); }
     } catch (x) { toast('Error: ' + x.message); }
   });
+  if (typeof extra4Init === 'function') extra4Init();
 }
