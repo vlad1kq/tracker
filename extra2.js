@@ -4,12 +4,14 @@
 const SITES = ['Abdomen left', 'Abdomen right', 'Thigh left', 'Thigh right', 'Glute left', 'Glute right', 'Deltoid left', 'Deltoid right'];
 const savePrefs = () => DB.put('meta', { key: 'prefs', value: S.prefs });
 const rlabel = r => r.kind === 'weight' ? 'Weigh-in' : r.kind === 'photo' ? 'Weight photo' : r.name;
-const metaFor = d => [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }, ...(S.bg ? [{ key: 'bg', value: S.bg }] : []), ...(S.pin ? [{ key: 'pin', value: S.pin }] : []), ...(S.lastBackup ? [{ key: 'lastBackup', value: S.lastBackup }] : []), { key: 'prefs', value: cleanPrefs(d.prefs) }];
+const metaFor = d => [{ key: 'unit', value: d.unit === 'lb' ? 'lb' : 'kg' }, ...(S.bg ? [{ key: 'bg', value: S.bg }] : []), ...(S.pin ? [{ key: 'pin', value: S.pin }] : []), ...(S.bio ? [{ key: 'bio', value: S.bio }] : []), ...(S.lastBackup ? [{ key: 'lastBackup', value: S.lastBackup }] : []), { key: 'prefs', value: cleanPrefs(d.prefs) }];
 function cleanPrefs(p) {
   const o = {}; if (!p || typeof p !== 'object') return o;
   if (typeof p.goalKg === 'number' && p.goalKg > 0 && p.goalKg < 700) o.goalKg = p.goalKg;
   if (Number.isInteger(p.backupDays) && p.backupDays > 0 && p.backupDays <= 365) o.backupDays = p.backupDays;
   if ([0, 1, 5, 15].includes(p.lockMin)) o.lockMin = p.lockMin;
+  if (['en', 'ru'].includes(p.lang)) o.lang = p.lang; if (typeof p.blur === 'boolean') o.blur = p.blur;
+  o.hidden = (Array.isArray(p.hidden) ? p.hidden : []).filter(x => ['log', 'weight', 'stock', 'charts'].includes(x));
   o.mrem = (Array.isArray(p.mrem) ? p.mrem : []).filter(r => r && Number.isInteger(r.id) && ['weight', 'photo', 'metric'].includes(r.kind) && typeof r.name === 'string' && Number.isInteger(r.days) && r.days >= 1 && r.days <= 365).map(r => ({ id: r.id, kind: r.kind, name: r.name.slice(0, 40), days: r.days, at: /^\d\d:\d\d$/.test(r.at) ? r.at : '09:00' }));
   o.templates = (Array.isArray(p.templates) ? p.templates : []).filter(t => t && Number.isInteger(t.id) && Number.isInteger(t.peptideId) && typeof t.name === 'string').map(t => ({ id: t.id, name: t.name.slice(0, 40), peptideId: t.peptideId, amount: typeof t.amount === 'number' && t.amount > 0 ? t.amount : null, unit: UNITS.includes(t.unit) ? t.unit : null, site: typeof t.site === 'string' ? t.site.slice(0, 40) : null, vialId: Number.isInteger(t.vialId) ? t.vialId : null }));
   return o;
@@ -109,7 +111,7 @@ function drawWeight2() {
   const ma = w.map(x => { const t = new Date(x.ts).getTime(), g = w.filter(y => { const u = new Date(y.ts).getTime(); return u <= t && u >= t - 7 * DAY; }); return cv(g.reduce((a, y) => a + y.kg, 0) / g.length); });
   const ds = [{ label: 'Weight', data: w.map(x => cv(x.kg)), borderColor: '#0a84ff', backgroundColor: '#0a84ff', tension: .2, pointRadius: 3 }, { label: '7-day average', data: ma, borderColor: 'rgba(255,255,255,.6)', borderDash: [4, 4], pointRadius: 0, tension: .3 }];
   if (S.prefs.goalKg) ds.push({ label: 'Goal', data: w.map(() => cv(S.prefs.goalKg)), borderColor: '#30d158', borderDash: [2, 4], pointRadius: 0 });
-  mk('cw', { type: 'line', data: { labels: w.map(x => x.hasTime ? fmtDT(x.ts) : fmtD(x.ts)), datasets: ds }, plugins: [eventsPlugin(w)], options: { plugins: { legend: { display: true, labels: { boxWidth: 12 } } }, scales: { x: { ticks: { maxTicksLimit: 5 } }, y: { title: { display: true, text: S.unit } } } } });
+  mk('cw', { type: 'line', data: { labels: w.map(x => x.hasTime ? fmtDT(x.ts) : fmtD(x.ts)), datasets: ds }, plugins: [eventsPlugin(w), coursePlugin(w)], options: { plugins: { legend: { display: true, labels: { boxWidth: 12 } } }, scales: { x: { ticks: { maxTicksLimit: 5 } }, y: { title: { display: true, text: S.unit } } } } });
 }
 const withPeriod = fn => (...a) => { const keep = S.logs; if (S.sp !== 'all') { const cut = Date.now() - S.sp * DAY; S.logs = S.logs.filter(l => new Date(l.ts) >= cut); } try { return fn(...a); } finally { S.logs = keep; } };
 const periodBar = () => `<div class="seg" role="group" aria-label="Period">${[['all', 'All time'], ['30', '30 d'], ['90', '90 d'], ['365', '1 year']].map(([v, l]) => `<button data-a="sp" data-v="${v}" class="${S.sp === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
@@ -201,19 +203,19 @@ function pinForm() {
 }
 function pinRemove() {
   openForm('Remove PIN', '<label>Current PIN<input name="c" type="password" inputmode="numeric" autocomplete="off" required></label>', async f => {
-    if (!(await checkPin(f.get('c')))) return 'PIN is wrong.'; await DB.del('meta', 'pin'); S.pin = null;
+    if (!(await checkPin(f.get('c')))) return 'PIN is wrong.'; await DB.del('meta', 'pin'); S.pin = null; if (S.bio) { await DB.del('meta', 'bio'); S.bio = null; }
   });
 }
 function showLock() {
   const d = $('#dlg'); if (d.open) d.close(); const r = $('#rep'); if (r) r.style.display = 'none';
   let el = $('#lock'); if (!el) { el = document.createElement('div'); el.id = 'lock'; document.body.appendChild(el); }
   let buf = '', fail = 0, until = 0; S.locked = true; el.style.display = 'flex';
-  const draw = (msg = '') => { el.innerHTML = `<div class="lk"><h2>Enter PIN</h2><div class="dots" aria-live="polite">${[...Array(Math.max(4, buf.length))].map((_, i) => `<i class="${i < buf.length ? 'on' : ''}"></i>`).join('')}</div><p class="err" role="alert">${msg}</p><div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0, 'OK'].map(k => `<button class="ghost" data-k="${k}">${k}</button>`).join('')}</div><button class="ghost" data-k="forgot" style="margin-top:16px;font-size:.8rem">Forgot PIN</button></div>`; };
+  const draw = (msg = '') => { el.innerHTML = `<div class="lk"><h2>Enter PIN</h2><div class="dots" aria-live="polite">${[...Array(Math.max(4, buf.length))].map((_, i) => `<i class="${i < buf.length ? 'on' : ''}"></i>`).join('')}</div><p class="err" role="alert">${msg}</p><div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0, 'OK'].map(k => `<button class="ghost" data-k="${k}">${k}</button>`).join('')}</div>${S.bio ? '<button class="ghost" data-k="bio" style="margin:16px 6px 0">Use Face ID</button>' : ''}<button class="ghost" data-k="forgot" style="margin-top:16px;font-size:.8rem">Forgot PIN</button></div>`; };
   draw();
   el.onclick = async e => {
     const b = e.target.closest('[data-k]'); if (!b) return; const k = b.dataset.k;
-    if (k === '⌫') buf = buf.slice(0, -1); else if (k === 'forgot') {
-      if (confirm('This erases ALL data in the app and removes the PIN. Continue?') && prompt('Type DELETE to confirm') === 'DELETE') { await DB.replaceAll({}); S.pin = null; S.locked = false; el.style.display = 'none'; await load(); render(); } return;
+    if (k === '⌫') buf = buf.slice(0, -1); else if (k === 'bio') { try { await bioAuth(); S.locked = false; el.style.display = 'none'; el.innerHTML = ''; } catch (x) { draw('Face ID failed. Use your PIN.'); } return; } else if (k === 'forgot') {
+      if (confirm('This erases ALL data in the app and removes the PIN. Continue?') && prompt('Type DELETE to confirm') === 'DELETE') { await DB.replaceAll({}); S.pin = null; S.bio = null; S.locked = false; el.style.display = 'none'; await load(); render(); } return;
     } else if (k === 'OK') {
       if (Date.now() < until) return draw('Please wait a moment.');
       if (await checkPin(buf)) { S.locked = false; el.style.display = 'none'; el.innerHTML = ''; return; }
@@ -279,4 +281,5 @@ function extra2Init() {
       else if (t.id === 'alock') { S.prefs.lockMin = +t.value; await savePrefs(); }
     } catch (x) { toast('Error: ' + x.message); }
   });
+  if (typeof extra3Init === 'function') extra3Init();
 }

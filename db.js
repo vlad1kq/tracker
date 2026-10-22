@@ -1,12 +1,12 @@
 'use strict';
 /* Small IndexedDB data-access layer. Stores: peptides, logs, weights, meta. */
-const STORES = ['peptides', 'logs', 'weights', 'meta', 'vials', 'metrics', 'symptoms'];
+const STORES = ['peptides', 'logs', 'weights', 'meta', 'vials', 'metrics', 'symptoms', 'courses'];
 const DB = {
   _db: null,
   open() {
     return new Promise((resolve, reject) => {
       if (!window.indexedDB) return reject(new Error('IndexedDB is not available in this browser.'));
-      const r = indexedDB.open('private-tracker', 4);
+      const r = indexedDB.open('private-tracker', 5);
       r.onupgradeneeded = e => {
         const d = r.result;
         if (e.oldVersion < 1) {
@@ -26,7 +26,8 @@ const DB = {
           d.createObjectStore('metrics', { keyPath: 'id', autoIncrement: true });
         }
         if (e.oldVersion < 4) d.createObjectStore('symptoms', { keyPath: 'id', autoIncrement: true }); // v4: symptoms journal
-        // Future migrations: if (e.oldVersion < 5) { ... }  (bump the version number above)
+        if (e.oldVersion < 5) d.createObjectStore('courses', { keyPath: 'id', autoIncrement: true }); // v5: courses
+        // Future migrations: if (e.oldVersion < 6) { ... }  (bump the version number above)
       };
       r.onsuccess = () => { this._db = r.result; resolve(); };
       r.onerror = () => reject(r.error);

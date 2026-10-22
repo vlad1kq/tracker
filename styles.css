@@ -73,3 +73,10 @@ nav button{font-size:.62rem}
 #rep h1,#rep h2{color:#000;text-shadow:none;background:none;-webkit-text-fill-color:#000}
 #rep table{width:100%;border-collapse:collapse;font-size:.8rem;margin-bottom:8px}#rep th,#rep td{border:1px solid #bbb;padding:4px;text-align:left}
 @media print{body>*:not(#rep){display:none!important}body::before,body::after{display:none}#rep{position:static;display:block!important}.no-print{display:none}}
+
+.chk{display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--tx)}.chk input{width:auto;min-height:0;margin:0}
+.fs{border:0;padding:0;margin:10px 0}.fs legend{color:var(--mu);font-size:.85rem;padding:0}
+.cmp3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}
+.hours{display:grid;grid-template-columns:repeat(24,1fr);gap:2px}.hours i{display:block;height:34px;border-radius:4px;background:#64d2ff}.hl{display:flex;justify-content:space-between;margin:2px 0 6px}
+.shot{margin:-6px 0 10px;min-height:36px;padding:4px 14px;font-size:.8rem}
+html.priv{filter:blur(30px) brightness(.45)}

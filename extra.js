@@ -14,7 +14,7 @@ const LAB_GROUPS = {
 const LAB_UNITS = {}; Object.values(LAB_GROUPS).flat().forEach(([n, ...u]) => { LAB_UNITS[n] = u; });
 const unitOpts = n => (LAB_UNITS[n] || []).map(u => `<option value="${esc(u)}">`).join('');
 const BODY_NAMES = ['Waist', 'Body fat %', 'Resting pulse', 'BP systolic', 'BP diastolic', 'Chest', 'Hips'];
-const snapshot = () => ({ app: 'private-tracker', version: 3, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights, vials: S.vials, metrics: S.metrics, symptoms: S.symptoms, prefs: S.prefs });
+const snapshot = () => ({ app: 'private-tracker', version: 3, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights, vials: S.vials, metrics: S.metrics, symptoms: S.symptoms, prefs: S.prefs, courses: S.courses });
 function saveFile(name, text, type) {
   const u = URL.createObjectURL(new Blob([text], { type })), a = document.createElement('a');
   a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
@@ -50,12 +50,13 @@ async function applyData(d) {
   if (d.vials !== undefined && !(Array.isArray(d.vials) && d.vials.every(x => x && Number.isInteger(x.id) && Number.isInteger(x.peptideId) && typeof x.date === 'string'))) return 'Invalid vial entries.';
   if (d.metrics !== undefined && !(Array.isArray(d.metrics) && d.metrics.every(x => x && Number.isInteger(x.id) && typeof x.name === 'string' && typeof x.value === 'number' && !isNaN(new Date(x.ts))))) return 'Invalid measurement entries.';
   if (d.symptoms !== undefined && !(Array.isArray(d.symptoms) && d.symptoms.every(x => x && Number.isInteger(x.id) && typeof x.text === 'string' && !isNaN(new Date(x.ts))))) return 'Invalid symptom entries.';
+  if (d.courses !== undefined && !(Array.isArray(d.courses) && d.courses.every(x => x && Number.isInteger(x.id) && typeof x.name === 'string' && typeof x.start === 'string' && (x.end === null || typeof x.end === 'string')))) return 'Invalid course entries.';
   if (d.symptoms) d.symptoms.forEach(x => { x.sev = Number.isInteger(x.sev) && x.sev >= 1 && x.sev <= 5 ? x.sev : 3; });
   d.weights.forEach(w => { if (w.photo && !(typeof w.photo === 'string' && w.photo.startsWith('data:image/'))) w.photo = null; });
   d.peptides.forEach(p => { p.category = p.category === 'steroid' ? 'steroid' : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
   d.logs.forEach(l => { const ok = typeof l.amount === 'number' && isFinite(l.amount) && l.amount > 0 && UNITS.includes(l.unit); l.amount = ok ? l.amount : null; l.unit = ok ? l.unit : null; });
   if (!confirm(`Replace ALL current data with ${d.logs.length} entries, ${d.weights.length} weights, ${(d.metrics || []).length} measurements, ${(d.vials || []).length} vials?`)) return 'Import cancelled.';
-  await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, vials: d.vials || [], metrics: d.metrics || [], symptoms: d.symptoms || [], meta: metaFor(d) });
+  await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, vials: d.vials || [], metrics: d.metrics || [], symptoms: d.symptoms || [], courses: d.courses || [], meta: metaFor(d) });
   await load(); render(); toast('Import complete.'); return null;
 }
 async function importFile(file) {
@@ -117,7 +118,7 @@ function metricForm(m) {
 const showMetric = m => openDetail(m.name, `<p class="big">${m.value} ${esc(m.unit)}</p><p>${m.hasTime ? fmtDT(m.ts) : fmtD(m.ts)}</p><p>${m.note ? esc(m.note) : '<span class="mu">No note</span>'}</p>`, () => metricForm(m), () => DB.del('metrics', m.id));
 function drawMetric() {
   const r = S.metrics.filter(m => m.kind === S.bt && m.name === S.mn).sort(byTs); if (r.length < 2) return;
-  mk('cm', { type: 'line', data: { labels: r.map(m => fmtD(m.ts)), datasets: [{ data: r.map(m => m.value), borderColor: '#ffd60a', backgroundColor: '#ffd60a', tension: .2, pointRadius: 3 }] }, options: { scales: { x: { ticks: { maxTicksLimit: 5 } } } } });
+  mk('cm', { type: 'line', plugins: [coursePlugin(r)], data: { labels: r.map(m => fmtD(m.ts)), datasets: [{ data: r.map(m => m.value), borderColor: '#ffd60a', backgroundColor: '#ffd60a', tension: .2, pointRadius: 3 }] }, options: { scales: { x: { ticks: { maxTicksLimit: 5 } } } } });
 }
 
 /* ---------- stock and costs ---------- */
