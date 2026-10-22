@@ -126,7 +126,7 @@ function logForm(r) {
     <label>Date<input type="date" name="d" required value="${t.date}"></label>
     <label>Time<input type="time" name="t" required value="${t.time}"></label>
     <label>Amount (optional)<div class="row"><input type="number" name="a" step="any" min="0" inputmode="decimal" placeholder="amount" value="${r && r.amount ? r.amount : ''}"><select name="u" aria-label="Unit">${UNITS.map(u => `<option ${((r && r.unit) || 'mg') === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></label>
-    <label>Injection site (optional)<input name="s" maxlength="40" list="sites" value="${esc(r && r.site)}"><datalist id="sites">${[...new Set(S.logs.map(l => l.site).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
+    <label>Injection site (optional)<input name="s" maxlength="40" list="sites" value="${esc(r && r.site)}"><datalist id="sites">${[...new Set([...SITES, ...S.logs.map(l => l.site).filter(Boolean)])].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
     <label>Vial (optional)<select name="v"><option value="">None</option>${S.vials.filter(v => !v.archived || (r && r.vialId === v.id)).map(v => `<option value="${v.id}" ${r && r.vialId === v.id ? 'selected' : ''}>${esc(pName(v.peptideId))}${v.label ? ' · ' + esc(v.label) : ''}</option>`).join('')}</select></label>
     <label>How did you feel? 1–5 (optional)<select name="m"><option value="">—</option>${[1, 2, 3, 4, 5].map(n => `<option ${r && r.mood === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
     <label>Tags (optional, comma-separated)<input name="g" maxlength="80" value="${esc(((r && r.tags) || []).join(', '))}"></label>
@@ -234,7 +234,7 @@ function vWeight() {
   const w = weightsInRange(), all = [...S.weights].sort((a, b) => b.ts.localeCompare(a.ts));
   return `<div class="row"><button class="primary" data-a="newweight">Log weight</button></div>
   <div class="card">${rangeSel()}${w.length ? '<div class="cv"><canvas id="cw" role="img" aria-label="Weight over time"></canvas></div>' : empty('No weight records in this range.')}
-  <small>Charts show only recorded values. Weight changes do not by themselves indicate fat gain or loss.</small></div>
+  <small>Charts show only recorded values. Ticks: bottom = logged entries, top = symptoms, dashed line = new vial. Weight changes do not by themselves indicate fat gain or loss.</small></div>
   <div class="card"><h2>History</h2>${all.length ? `<ul>${all.map(r => `<li><button class="item" data-a="showw" data-id="${r.id}"><strong>${fmtW(r.kg)}</strong>${r.photo ? ' <span class="tag">Photo</span>' : ''}<br><small>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty('No weight records yet.')}</div>`;
 }
 function vCharts() {
@@ -298,9 +298,7 @@ document.addEventListener('click', async e => {
     else if (a === 'ics') exportIcs(S.peptides.find(x => x.id === id));
     else if (a === 'import') $('#file').click();
     else if (a === 'export') {
-      const data = snapshot();
-      const u = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-      const l = document.createElement('a'); l.href = u; l.download = `tracker-backup-${parts().date}.json`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
+      saveFile(`tracker-backup-${parts().date}.json`, JSON.stringify(snapshot(), null, 2), 'application/json');
     } else if (a === 'wipe') {
       if (confirm('Delete ALL data on this device? This cannot be undone.') && prompt('Type DELETE to confirm') === 'DELETE') { await DB.replaceAll({}); await load(); render(); toast('All data deleted.'); }
     }
