@@ -11,7 +11,7 @@ const PRESETS = [
   { id: 'violet', name: 'Violet', css: 'linear-gradient(160deg,#2b1055,#7b4bd6 55%,#d7a8ff)' },
   { id: 'graphite', name: 'Graphite', css: 'linear-gradient(160deg,#2a2a31,#0a0a0d)' }
 ];
-const S = { bg: null, view: 'home', unit: 'kg', range: '30', peptides: [], logs: [], weights: [], cat: 'all', f: { p: '', from: '', to: '' }, charts: {} };
+const S = { bg: null, view: 'home', unit: 'kg', range: '30', peptides: [], logs: [], weights: [], cat: 'all', f: { p: '', q: '', from: '', to: '' }, charts: {} };
 const parts = (d = new Date()) => { d = new Date(d); return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` }; };
 const toISO = (d, t) => new Date(`${d}T${t || '12:00'}`).toISOString();
 const fmtDT = i => new Date(i).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -121,11 +121,15 @@ function logForm(r) {
   if (!opts.length) { toast('Add an entry first (Log tab → Entries).'); return; }
   const grp = c => { const o = opts.filter(p => (p.category || 'peptide') === c); return o.length ? `<optgroup label="${CL[c]}s">${o.map(p => `<option value="${p.id}" ${r && r.peptideId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : ''; };
   const t = parts(r ? r.ts : undefined);
-  openForm(r ? 'Edit log entry' : 'Log entry', `
+  openForm(r && r.id ? 'Edit log entry' : 'Log entry', `
     <label>Entry<select name="p" required>${['peptide', 'steroid'].map(grp).join('')}</select></label>
     <label>Date<input type="date" name="d" required value="${t.date}"></label>
     <label>Time<input type="time" name="t" required value="${t.time}"></label>
     <label>Amount (optional)<div class="row"><input type="number" name="a" step="any" min="0" inputmode="decimal" placeholder="amount" value="${r && r.amount ? r.amount : ''}"><select name="u" aria-label="Unit">${UNITS.map(u => `<option ${((r && r.unit) || 'mg') === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></label>
+    <label>Injection site (optional)<input name="s" maxlength="40" list="sites" value="${esc(r && r.site)}"><datalist id="sites">${[...new Set(S.logs.map(l => l.site).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
+    <label>Vial (optional)<select name="v"><option value="">None</option>${S.vials.filter(v => !v.archived || (r && r.vialId === v.id)).map(v => `<option value="${v.id}" ${r && r.vialId === v.id ? 'selected' : ''}>${esc(pName(v.peptideId))}${v.label ? ' · ' + esc(v.label) : ''}</option>`).join('')}</select></label>
+    <label>How did you feel? 1–5 (optional)<select name="m"><option value="">—</option>${[1, 2, 3, 4, 5].map(n => `<option ${r && r.mood === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label>Tags (optional, comma-separated)<input name="g" maxlength="80" value="${esc(((r && r.tags) || []).join(', '))}"></label>
     <label>Note (optional)<textarea name="n" maxlength="500">${esc(r && r.note)}</textarea></label>`,
   async f => {
     const ts = toISO(f.get('d'), f.get('t'));
@@ -133,7 +137,7 @@ function logForm(r) {
     const raw = f.get('a').trim(), amt = raw === '' ? null : parseFloat(raw), unit = f.get('u');
     if (amt !== null && (!isFinite(amt) || amt <= 0 || amt > 100000)) return 'Please enter a valid amount.';
     if (!UNITS.includes(unit)) return 'Please choose a unit.';
-    await DB.put('logs', { ...(r || {}), peptideId: +f.get('p'), ts, note: f.get('n').trim(), amount: amt, unit: amt === null ? null : unit });
+    await DB.put('logs', { ...(r || {}), peptideId: +f.get('p'), ts, note: f.get('n').trim(), amount: amt, unit: amt === null ? null : unit, site: f.get('s').trim() || null, vialId: f.get('v') ? +f.get('v') : null, mood: f.get('m') ? +f.get('m') : null, tags: f.get('g').split(',').map(x => x.trim()).filter(Boolean).slice(0, 8) });
   });
 }
 function weightForm(r) {
@@ -169,7 +173,7 @@ function peptideForm(r) {
     await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: f.get('c') === 'steroid' ? 'steroid' : 'peptide', note: f.get('o').trim(), everyDays: days, at: f.get('at') || '09:00' });
   });
 }
-const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p>${r.amount ? `<p class="big">${fmtAmt(r)}</p>` : ''}<p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
+const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p>${r.amount ? `<p class="big">${fmtAmt(r)}</p>` : ''}${extraLines(r)}<p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
 const showWeight = r => openDetail(fmtW(r.kg), `<p>${r.hasTime ? fmtDT(r.ts) : fmtD(r.ts)}</p><p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p>`, () => weightForm(r), () => DB.del('weights', r.id));
 
 /* ---------- charts ---------- */
@@ -207,20 +211,21 @@ function vHome() {
   <div class="grid"><div class="card"><small>Latest weight</small><div class="big">${lw ? fmtW(lw.kg) : '—'}</div><small>${lw ? fmtD(lw.ts) : 'No entries'}</small></div>
   <div class="card"><small>Last log</small><div class="big">${ll ? fmtD(ll.ts) : '—'}</div><small>${ll ? new Date(ll.ts).toLocaleTimeString(undefined, { timeStyle: 'short' }) : 'No entries'}</small></div></div>
   <div class="card" style="margin-top:12px"><small>Records created this month</small><div class="big">${month || 0}</div><small>${mc('peptide')} peptide · ${mc('steroid')} steroid logs</small></div>
-  <div class="row"><button class="primary" data-a="newlog">Log entry</button><button class="primary" data-a="newweight">Log weight</button></div>
+  <div class="row"><button class="primary" data-a="newlog">Log entry</button><button class="primary" data-a="newweight">Log weight</button><button class="ghost" data-a="repeat">Repeat last</button></div>
   ${remCard()}
   <div class="card"><h2>Recent activity</h2>${recent.length ? `<ul>${recent.map(r => `<li><button class="item" data-a="${r.k === 'l' ? 'showlog' : 'showw'}" data-id="${r.id}">${r.k === 'l' ? tag(cat(r.peptideId)) : '<span class="tag weight">Weight</span>'}${r.k === 'l' ? esc(pName(r.peptideId)) : fmtW(r.kg)}<br><small>${fmtDT(r.ts)}${r.k === 'l' && r.amount ? ' · ' + fmtAmt(r) : ''}</small></button></li>`).join('')}</ul>` : empty('Nothing recorded yet.')}</div>`;
 }
 function vLog() {
   let l = [...S.logs].sort((a, b) => b.ts.localeCompare(a.ts));
   if (S.cat !== 'all') l = l.filter(x => cat(x.peptideId) === S.cat);
+  if (S.f.q) { const q = S.f.q.toLowerCase(); l = l.filter(x => [pName(x.peptideId), x.note, x.site, (x.tags || []).join(' ')].join(' ').toLowerCase().includes(q)); }
   if (S.f.p) l = l.filter(x => x.peptideId === +S.f.p);
   if (S.f.from) l = l.filter(x => parts(x.ts).date >= S.f.from);
   if (S.f.to) l = l.filter(x => parts(x.ts).date <= S.f.to);
-  return `<div class="row"><button class="primary" data-a="newlog">Log entry</button></div>
+  return `<div class="row"><button class="primary" data-a="newlog">Log entry</button><button class="ghost" data-a="repeat">Repeat last</button></div>
   ${catBar()}<div class="card"><h2>History</h2><div class="row"><label>Entry<select id="fp"><option value="">All</option>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<option value="${p.id}" ${+S.f.p === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-  <label>From<input type="date" id="ff" value="${S.f.from}"></label><label>To<input type="date" id="ft" value="${S.f.to}"></label></div>
-  ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.amount ? ' · ' + fmtAmt(r) : ''}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
+  <label>From<input type="date" id="ff" value="${S.f.from}"></label><label>To<input type="date" id="ft" value="${S.f.to}"></label></div><label>Search<input type="search" id="fq" value="${esc(S.f.q)}" placeholder="entry, note, site, tag"></label>
+  ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.amount ? ' · ' + fmtAmt(r) : ''}${r.site ? ' · ' + esc(r.site) : ''}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
   <div class="card"><h2>Entries</h2><button class="ghost" data-a="newpep">Add entry</button>
   ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}${p.everyDays ? ' · every ' + p.everyDays + ' d' : ''}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button> ${p.everyDays ? `<button class="ghost" data-a="ics" data-id="${p.id}">Calendar</button>` : ''}<button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
 }
@@ -238,8 +243,8 @@ function vCharts() {
 }
 function vSettings() {
   return `${appearance()}<div class="card"><h2>Weight unit</h2><select id="unit"><option value="kg" ${S.unit === 'kg' ? 'selected' : ''}>Kilograms</option><option value="lb" ${S.unit === 'lb' ? 'selected' : ''}>Pounds</option></select><small>Values are always stored in kg.</small></div>
-  <div class="card"><h2>Backup</h2><div class="row"><button class="ghost" data-a="export">Export JSON</button><button class="ghost" data-a="import">Import JSON</button></div><input type="file" id="file" accept="application/json,.json" hidden>
-  <small>A backup file contains private information. Store it safely. Importing replaces all current data.</small></div>
+  <div class="card"><h2>Backup</h2><div class="row"><button class="ghost" data-a="xexport">Encrypted export</button><button class="ghost" data-a="export">Plain JSON</button><button class="ghost" data-a="import">Import JSON</button></div><input type="file" id="file" accept="application/json,.json" hidden>
+  <small>Encrypted backups use AES-256-GCM with a key derived from your password (PBKDF2); a forgotten password cannot be recovered. Plain JSON is unencrypted private data. Importing replaces all current data.</small></div>
   <div class="card"><h2>Privacy</h2><small>All records stay in this browser's IndexedDB on this device. Nothing is sent anywhere and there is no sync or analytics. Data can be lost if website data is cleared or the device is lost, so export backups regularly. This app does not encrypt data. It is a logging tool only and gives no medical advice, doses, or reminders.</small></div>
   <div class="card"><h2>Install on iPhone</h2><small>Open the site in Safari → Share → Add to Home Screen → Add. Reminders show inside the app and on its icon badge when the app runs. A website cannot send reliable background notifications on iOS, so for real alerts use Log → Calendar on an entry to add a repeating calendar reminder (the entry name appears in your calendar).</small></div>
   <div class="card"><button class="danger" data-a="wipe">Delete all data</button></div>`;
@@ -292,7 +297,7 @@ document.addEventListener('click', async e => {
     else if (a === 'ics') exportIcs(S.peptides.find(x => x.id === id));
     else if (a === 'import') $('#file').click();
     else if (a === 'export') {
-      const data = { app: 'private-tracker', version: 2, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights };
+      const data = snapshot();
       const u = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
       const l = document.createElement('a'); l.href = u; l.download = `tracker-backup-${parts().date}.json`; l.click(); setTimeout(() => URL.revokeObjectURL(u), 5000);
     } else if (a === 'wipe') {
@@ -310,6 +315,7 @@ document.addEventListener('change', async e => {
 });
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#dlg').open && DB._db) render(); });
+extraInit();
 (async () => {
   try { await DB.open(); await load(); render(); }
   catch (x) { $('#view').innerHTML = `<div class="card"><h2>Storage unavailable</h2><p>${esc(x.message)}</p><p class="mu">Private browsing or blocked storage can cause this.</p></div>`; }
