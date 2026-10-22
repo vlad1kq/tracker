@@ -1,6 +1,18 @@
 'use strict';
 /* Extra features: encrypted backup, stats, body metrics/labs, stock & costs, convenience tools.
    Loaded before app.js; extraInit() is called by app.js once all of its globals exist. */
+/* Common lab markers [name, unit options...]. Units differ between labs, so no unit is filled in silently. */
+const LAB_GROUPS = {
+  'Hormones': [['Total testosterone', 'ng/dL', 'nmol/L'], ['Free testosterone', 'pg/mL', 'pmol/L'], ['Estradiol (E2)', 'pg/mL', 'pmol/L'], ['LH', 'IU/L'], ['FSH', 'IU/L'], ['SHBG', 'nmol/L'], ['Prolactin', 'ng/mL', 'mIU/L'], ['Progesterone', 'ng/mL', 'nmol/L'], ['DHEA-S', 'µg/dL', 'µmol/L'], ['Cortisol', 'µg/dL', 'nmol/L'], ['IGF-1', 'ng/mL', 'nmol/L'], ['TSH', 'mIU/L'], ['Free T4', 'ng/dL', 'pmol/L'], ['Free T3', 'pg/mL', 'pmol/L']],
+  'Blood count': [['Hematocrit', '%'], ['Hemoglobin', 'g/dL', 'g/L'], ['Red blood cells', '10^6/µL'], ['Platelets', '10^3/µL'], ['White blood cells', '10^3/µL']],
+  'Liver': [['ALT', 'U/L'], ['AST', 'U/L'], ['GGT', 'U/L'], ['ALP', 'U/L'], ['Bilirubin', 'mg/dL', 'µmol/L']],
+  'Kidney': [['Creatinine', 'mg/dL', 'µmol/L'], ['Cystatin C', 'mg/L'], ['Urea / BUN', 'mg/dL', 'mmol/L'], ['eGFR', 'mL/min/1.73m²']],
+  'Lipids': [['Total cholesterol', 'mg/dL', 'mmol/L'], ['LDL', 'mg/dL', 'mmol/L'], ['HDL', 'mg/dL', 'mmol/L'], ['Triglycerides', 'mg/dL', 'mmol/L'], ['ApoB', 'mg/dL', 'g/L']],
+  'Metabolic': [['Fasting glucose', 'mg/dL', 'mmol/L'], ['HbA1c', '%', 'mmol/mol'], ['Insulin', 'µIU/mL', 'pmol/L']],
+  'Other': [['PSA', 'ng/mL'], ['Ferritin', 'ng/mL', 'µg/L'], ['Vitamin D (25-OH)', 'ng/mL', 'nmol/L'], ['CK', 'U/L'], ['CRP', 'mg/L']]
+};
+const LAB_UNITS = {}; Object.values(LAB_GROUPS).flat().forEach(([n, ...u]) => { LAB_UNITS[n] = u; });
+const unitOpts = n => (LAB_UNITS[n] || []).map(u => `<option value="${esc(u)}">`).join('');
 const BODY_NAMES = ['Waist', 'Body fat %', 'Resting pulse', 'BP systolic', 'BP diastolic', 'Chest', 'Hips'];
 const snapshot = () => ({ app: 'private-tracker', version: 3, exported: new Date().toISOString(), unit: S.unit, peptides: S.peptides, logs: S.logs, weights: S.weights, vials: S.vials, metrics: S.metrics, symptoms: S.symptoms, prefs: S.prefs });
 function saveFile(name, text, type) {
@@ -86,13 +98,16 @@ function metricForm(m) {
   const k = m ? m.kind : S.bt, t = parts(m ? m.ts : undefined);
   const known = [...new Set([...(k === 'lab' ? [] : BODY_NAMES), ...S.metrics.filter(x => x.kind === k).map(x => x.name)])];
   openForm(m ? 'Edit value' : (k === 'lab' ? 'Add lab result' : 'Add measurement'), `
-    <label>Name<input name="n" required maxlength="40" list="mn" value="${esc(m && m.name)}"><datalist id="mn">${known.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
+    ${k === 'lab' ? `<label>Marker<select name="pre"><option value="">Custom…</option>${Object.entries(LAB_GROUPS).map(([g, a]) => `<optgroup label="${g}">${a.map(([n]) => `<option ${m && m.name === n ? 'selected' : ''}>${n}</option>`).join('')}</optgroup>`).join('')}</select></label>
+    <label>Custom name (only if not in the list)<input name="n" maxlength="40" list="mn" value="${esc(m && !LAB_UNITS[m.name] ? m.name : '')}"><datalist id="mn">${known.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>`
+    : `<label>Name<input name="n" required maxlength="40" list="mn" value="${esc(m && m.name)}"><datalist id="mn">${known.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>`}
     <label>Value<input name="v" type="number" step="any" inputmode="decimal" required value="${m ? m.value : ''}"></label>
-    <label>Unit (optional)<input name="u" maxlength="12" value="${esc(m && m.unit)}"></label>
+    <label>Unit (optional)<input name="u" maxlength="12" list="un" placeholder="${k === 'lab' && m && LAB_UNITS[m.name] ? esc(LAB_UNITS[m.name].join(' or ')) : 'unit'}" value="${esc(m && m.unit)}"><datalist id="un">${k === 'lab' && m ? unitOpts(m.name) : ''}</datalist></label>
+    ${k === 'lab' ? '<small>Units differ between labs: enter the unit printed on your report. The app only records values and shows no reference ranges.</small>' : ''}
     <label>Date<input type="date" name="d" required value="${t.date}"></label>
     <label>Time (optional)<input type="time" name="tm" value="${m && m.hasTime ? t.time : ''}"></label>
     <label>Note (optional)<textarea name="o" maxlength="500">${esc(m && m.note)}</textarea></label>`, async f => {
-    const name = f.get('n').trim(), v = parseFloat(f.get('v')), ts = toISO(f.get('d'), f.get('tm'));
+    const name = (f.get('n').trim() || (f.get('pre') || '')), v = parseFloat(f.get('v')), ts = toISO(f.get('d'), f.get('tm'));
     if (!name) return 'Name is required.';
     if (!isFinite(v) || Math.abs(v) > 1e7) return 'Please enter a valid value.';
     if (isNaN(new Date(ts))) return 'Please enter a valid date.';
@@ -204,7 +219,7 @@ function extraInit() {
   });
   document.addEventListener('change', e => {
     const t = e.target;
-    if (t.id === 'mname') { S.mn = t.value; render(); } else if (t.id === 'sa') { S.sa = t.value; render(); } else if (t.id === 'fq') { S.f.q = t.value; render(); } else if (t.id === 'cpa') { S.ca = +t.value; render(); } else if (t.id === 'cpb') { S.cb = +t.value; render(); }
+    if (t.id === 'mname') { S.mn = t.value; render(); } else if (t.id === 'sa') { S.sa = t.value; render(); } else if (t.id === 'fq') { S.f.q = t.value; render(); } else if (t.id === 'cpa') { S.ca = +t.value; render(); } else if (t.id === 'cpb') { S.cb = +t.value; render(); } else if (t.name === 'pre') { const dl = document.querySelector('#un'), u = document.querySelector('#f [name=u]'); if (dl) dl.innerHTML = unitOpts(t.value); if (u) u.placeholder = (LAB_UNITS[t.value] || []).join(' or ') || 'unit'; }
   });
   if (typeof extra2Init === 'function') extra2Init();
 }
