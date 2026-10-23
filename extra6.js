@@ -32,10 +32,31 @@ function fixSubs() {
   S.ht = fix(S.ht, 'h'); S.bt = fix(S.bt, 'b'); S.jt = fix(S.jt, 'j');
 }
 function applyHide() {
-  const hs = hideSet(); if (!hs.size) return; const main = document.getElementById('view'); if (!main) return;
-  main.querySelectorAll('[data-a=ht],[data-a=bt],[data-a=jt]').forEach(b => { if (hs.has(`sub:${{ ht: 'h', bt: 'b', jt: 'j' }[b.dataset.a]}:${b.dataset.v}`)) b.style.display = 'none'; });
-  const cards = [...main.querySelectorAll('.card, .grid, #view > .row')];
-  (HIDEMAP[S.view] || []).forEach(([key, test]) => { if (hs.has('card:' + key)) cards.forEach(c => { if (c.isConnected && test(c)) c.remove(); }); });
+  const hs = hideSet(), main = document.getElementById('view'); if (!main) return;
+  const bars = new Map();
+  main.querySelectorAll('[data-a=ht],[data-a=bt],[data-a=jt]').forEach(b => {
+    const p = { ht: 'h', bt: 'b', jt: 'j' }[b.dataset.a]; if (hs.has(`sub:${p}:${b.dataset.v}`)) b.style.display = 'none';
+    if (b.parentElement) bars.set(b.parentElement, p);
+  });
+  bars.forEach((p, el) => { const e = document.createElement('button'); e.dataset.a = 'editsubs'; e.dataset.g = p; e.setAttribute('aria-label', 'Edit sections'); e.textContent = '✎'; e.style.flex = '0 0 40px'; el.appendChild(e); });
+  if (hs.size) {
+    const cards = [...main.querySelectorAll('.card, .grid, #view > .row')];
+    (HIDEMAP[S.view] || []).forEach(([key, test]) => { if (hs.has('card:' + key)) cards.forEach(c => { if (c.isConnected && test(c)) c.remove(); }); });
+  }
+  if (HIDEMAP[S.view]) { const b = document.createElement('button'); b.className = 'ghost'; b.dataset.a = 'editview'; b.style.cssText = 'width:100%;margin-top:6px'; b.textContent = 'Customize this screen'; main.appendChild(b); }
+}
+async function saveHide(keys, vis) { const h = new Set(S.prefs.hide || []); keys.forEach(k => { if (vis.has(k)) h.delete(k); else h.add(k); }); S.prefs.hide = [...h]; await savePrefs(); }
+const hideChecks = (items, hs) => items.map(([k, l]) => `<label class="chk"><input type="checkbox" name="v" value="${k}" ${hs.has(k) ? '' : 'checked'}>${l}</label>`).join('');
+function editSubs(p) {
+  const g = CUSTOM.find(x => x.g === { h: 'Health sections', b: 'Body sections', j: 'Journal sections' }[p]);
+  openForm(g.g, `${hideChecks(g.items, hideSet())}<small>Untick what you do not need. Nothing is deleted; bring it back any time with the ✎ button.</small>`, async f => {
+    const vis = new Set(f.getAll('v')); if (!vis.size) return 'Keep at least one section visible.';
+    await saveHide(g.items.map(x => x[0]), vis);
+  });
+}
+function editView() {
+  const all = CUSTOM.flatMap(g => g.items), items = (HIDEMAP[S.view] || []).map(r => all.find(x => x[0] === 'card:' + r[0])).filter(Boolean);
+  openForm('Customize this screen', `${hideChecks(items, hideSet())}<small>Untick the cards you do not need on this screen. Nothing is deleted.</small>`, async f => { await saveHide(items.map(x => x[0]), new Set(f.getAll('v'))); });
 }
 function hideFields() {
   const hs = hideSet(); if (!hs.size) return;
@@ -50,7 +71,7 @@ function customizeCard() {
 
 function extra6Init() {
   S.oc = new Set();
-  Object.assign(RU, { 'Customize': 'Настройка интерфейса', 'Show everything': 'Показать всё', 'Health sections': 'Разделы «Здоровье»', 'Body sections': 'Разделы «Тело»', 'Journal sections': 'Разделы «Дневник»', 'Home cards': 'Карточки главной', 'Log cards': 'Карточки журнала', 'Stats cards': 'Карточки статистики', 'Stock cards': 'Карточки запасов', 'Form fields': 'Поля форм', 'Tabs': 'Вкладки',
+  Object.assign(RU, { 'Customize this screen': 'Настроить этот экран', 'Edit sections': 'Изменить разделы', 'Customize': 'Настройка интерфейса', 'Show everything': 'Показать всё', 'Health sections': 'Разделы «Здоровье»', 'Body sections': 'Разделы «Тело»', 'Journal sections': 'Разделы «Дневник»', 'Home cards': 'Карточки главной', 'Log cards': 'Карточки журнала', 'Stats cards': 'Карточки статистики', 'Stock cards': 'Карточки запасов', 'Form fields': 'Поля форм', 'Tabs': 'Вкладки',
     'Action buttons': 'Кнопки действий', 'Latest weight, last log, month': 'Вес, последняя запись, месяц', 'Backup reminder': 'Напоминание о копии', 'Recent activity': 'Недавние события', 'Symptoms': 'Симптомы', 'Last 7 / 30 days': 'Последние 7 / 30 дней', 'Events and entries charts': 'Графики записей', 'Two series chart': 'График двух показателей', 'Injection site': 'Место укола', 'Vial': 'Флакон', 'Feeling': 'Самочувствие', 'Tags': 'Теги', 'Photo & angle': 'Фото и ракурс', 'Measures': 'Замеры',
     'Untick what you do not need. Hidden items disappear from the screens; your data is not deleted and you can bring them back at any time.': 'Снимите галочки с ненужного. Скрытое пропадает с экранов, данные не удаляются, вернуть можно в любой момент.' });
   const render2 = render; render = () => { fixSubs(); render2(); applyHide(); };
@@ -75,5 +96,9 @@ function extra6Init() {
   document.addEventListener('click', async e => {
     const b = e.target.closest('[data-a="showall"]'); if (!b) return;
     try { S.prefs.hide = []; S.prefs.hidden = []; await savePrefs(); render(); toast('Everything is visible again.'); } catch (x) { toast('Error: ' + x.message); }
+  });
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-a="editsubs"],[data-a="editview"]'); if (!b) return;
+    if (b.dataset.a === 'editsubs') editSubs(b.dataset.g); else editView();
   });
 }
