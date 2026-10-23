@@ -128,7 +128,7 @@ function feedItems() {
   S.weights.forEach(w => it.push({ g: 'weight', ts: w.ts, a: 'showw', id: w.id, tag: T('weight') + 'Weight</span>', text: `${fmtW(w.kg)}${w.note ? ' · ' + w.note : ''}` }));
   S.metrics.forEach(m => it.push({ g: 'body', ts: m.ts, a: 'showm', id: m.id, tag: T('') + (m.kind === 'lab' ? 'Lab' : 'Body') + '</span>', text: `${m.name}: ${m.value} ${m.unit || ''}` }));
   S.symptoms.forEach(y => it.push({ g: 'sym', ts: y.ts, a: 'showsym', id: y.id, tag: T('') + 'Symptom</span>', text: `${y.text} (${y.sev}/5)` }));
-  S.health.forEach(h => it.push({ g: h.kind === 'note' ? 'note' : 'health', ts: h.ts, a: 'showh', id: h.id, tag: hTag(h), text: hSummary(h) }));
+  S.health.forEach(h => it.push({ g: h.kind === 'note' ? 'note' : 'health', ts: h.ts, a: 'showh', id: h.id, tag: hTag(h), text: hSummary(h), k: h.kind }));
   return it.sort((a, b) => b.ts.localeCompare(a.ts));
 }
 const feedRow = i => `<li><button class="item" data-a="${i.a}" data-id="${i.id}">${i.tag}${esc(i.text)}<br><small>${fmtDT(i.ts)}</small></button></li>`;

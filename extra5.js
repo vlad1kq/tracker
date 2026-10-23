@@ -120,4 +120,5 @@ function extra5Init() {
     const b = e.target.closest('[data-a="copyicon"]'); if (!b) return;
     try { await navigator.clipboard.writeText(b.dataset.u); toast('Link copied. Paste it into Safari.'); } catch (x) { toast('Error: ' + x.message); }
   });
+  if (typeof extra6Init === 'function') extra6Init();
 }

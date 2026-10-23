@@ -11,6 +11,7 @@ function cleanPrefs(p) {
   if (Number.isInteger(p.backupDays) && p.backupDays > 0 && p.backupDays <= 365) o.backupDays = p.backupDays;
   if ([0, 1, 5, 15].includes(p.lockMin)) o.lockMin = p.lockMin;
   if (['en', 'ru'].includes(p.lang)) o.lang = p.lang; if (typeof p.blur === 'boolean') o.blur = p.blur;
+  o.hide = (Array.isArray(p.hide) ? p.hide : []).filter(k => typeof k === 'string' && k.length < 40).slice(0, 80);
   o.hidden = (Array.isArray(p.hidden) ? p.hidden : []).filter(x => ['log', 'journal', 'health', 'weight', 'stock', 'charts'].includes(x));
   o.mrem = (Array.isArray(p.mrem) ? p.mrem : []).filter(r => r && Number.isInteger(r.id) && ['weight', 'photo', 'metric'].includes(r.kind) && typeof r.name === 'string' && Number.isInteger(r.days) && r.days >= 1 && r.days <= 365).map(r => ({ id: r.id, kind: r.kind, name: r.name.slice(0, 40), days: r.days, at: /^\d\d:\d\d$/.test(r.at) ? r.at : '09:00' }));
   o.templates = (Array.isArray(p.templates) ? p.templates : []).filter(t => t && Number.isInteger(t.id) && Number.isInteger(t.peptideId) && typeof t.name === 'string').map(t => ({ id: t.id, name: t.name.slice(0, 40), peptideId: t.peptideId, amount: typeof t.amount === 'number' && t.amount > 0 ? t.amount : null, unit: UNITS.includes(t.unit) ? t.unit : null, site: typeof t.site === 'string' ? t.site.slice(0, 40) : null, vialId: Number.isInteger(t.vialId) ? t.vialId : null }));

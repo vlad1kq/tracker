@@ -47,7 +47,7 @@ function courseAnalysis() {
 }
 
 /* ---------- two series on one chart, time-of-day map, chart export ---------- */
-const seriesOpts = () => [['weight', 'Weight'], ['mood', 'Feeling (avg/day)'], ['entries', 'Entries per day'], ['sym', 'Symptom severity (avg/day)'], ...[...new Set(S.metrics.map(m => m.name))].map(n => ['m:' + n, n]), ...HOPTS];
+const seriesOpts = () => [['weight', 'Weight'], ['mood', 'Feeling (avg/day)'], ['entries', 'Entries per day'], ['sym', 'Symptom severity (avg/day)'], ...[...new Set(S.metrics.map(m => m.name))].map(n => ['m:' + n, n]), ...HOPTS].filter(([k]) => !hiddenSeries(k));
 function seriesData(k) {
   const cut = S.sp === 'all' ? 0 : Date.now() - S.sp * DAY, m = {}, add = (ts, v) => { if (new Date(ts) < cut || v == null) return; (m[parts(ts).date] = m[parts(ts).date] || []).push(v); };
   if (k === 'weight') S.weights.forEach(x => add(x.ts, +(S.unit === 'lb' ? x.kg * LB : x.kg).toFixed(2)));
