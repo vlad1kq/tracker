@@ -258,4 +258,5 @@ function extra4Init() {
       else if (t.id === 'hapchk') { S.prefs.haptic = t.checked; await savePrefs(); if (t.checked) haptic(); }
     } catch (x) { toast('Error: ' + x.message); }
   });
+  if (typeof extra5Init === 'function') extra5Init();
 }

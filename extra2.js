@@ -83,15 +83,15 @@ function remForm() {
     S.prefs.mrem = [...(S.prefs.mrem || []), { id: Date.now(), kind: k, name: k === 'metric' ? name : '', days, at: f.get('t') || '09:00' }]; await savePrefs();
   });
 }
-function icsBlock(name, days, st) {
+function icsBlock(name, days, st, wd) {
   const f = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`, nm = name.replace(/[\\;,\r\n]/g, ' ');
-  return ['BEGIN:VEVENT', `UID:${crypto.randomUUID()}@private-tracker`, `DTSTAMP:${new Date().toISOString().replace(/[-:]|\.\d+/g, '')}`, `DTSTART:${f(st)}`, `RRULE:FREQ=DAILY;INTERVAL=${days}`, `SUMMARY:Reminder: ${nm}`, 'BEGIN:VALARM', 'TRIGGER:PT0S', 'ACTION:DISPLAY', `DESCRIPTION:Reminder: ${nm}`, 'END:VALARM', 'END:VEVENT'];
+  return ['BEGIN:VEVENT', `UID:${crypto.randomUUID()}@private-tracker`, `DTSTAMP:${new Date().toISOString().replace(/[-:]|\.\d+/g, '')}`, `DTSTART:${f(st)}`, wd && wd.length ? `RRULE:FREQ=WEEKLY;BYDAY=${wd.map(i => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][i]).join(',')}` : `RRULE:FREQ=DAILY;INTERVAL=${days}`, `SUMMARY:Reminder: ${nm}`, 'BEGIN:VALARM', 'TRIGGER:PT0S', 'ACTION:DISPLAY', `DESCRIPTION:Reminder: ${nm}`, 'END:VALARM', 'END:VEVENT'];
 }
 function exportAllIcs() {
-  const it = [...dueList().map(x => ({ name: x.p.name, days: x.p.everyDays, at: x.p.at, due: x.due })), ...(S.prefs.mrem || []).map(r => ({ name: rlabel(r), days: r.days, at: r.at, due: dueFrom(lastOf(r), r.days, r.at, 'm' + r.id).due }))];
+  const it = [...dueList().map(x => ({ name: x.p.name, days: x.p.everyDays, at: x.p.at, due: x.due, wd: x.p.weekdays })), ...(S.prefs.mrem || []).map(r => ({ name: rlabel(r), days: r.days, at: r.at, due: dueFrom(lastOf(r), r.days, r.at, 'm' + r.id).due }))];
   if (!it.length) { toast('No reminders set.'); return; }
   const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Private Tracker//EN'];
-  it.forEach(i => { const [h, m] = (i.at || '09:00').split(':'); const st = i.due && i.due > new Date() ? i.due : (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(+h, +m, 0, 0); return d; })(); L.push(...icsBlock(i.name, i.days, st)); });
+  it.forEach(i => { const [h, m] = (i.at || '09:00').split(':'); const st = i.wd && i.wd.length ? nextOcc(i.wd, i.at) : i.due && i.due > new Date() ? i.due : (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(+h, +m, 0, 0); return d; })(); L.push(...icsBlock(i.name, i.days, st, i.wd)); });
   L.push('END:VCALENDAR'); saveFile('reminders.ics', L.join('\r\n'), 'text/calendar');
 }
 

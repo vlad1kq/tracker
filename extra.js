@@ -55,7 +55,7 @@ async function applyData(d) {
   d.weights.forEach(w => { if (w.photo && !(typeof w.photo === 'string' && w.photo.startsWith('data:image/'))) w.photo = null; });
   if (d.health !== undefined) { const m = validHealth(d.health); if (m) return m; d.health = d.health.map(cleanHealth); }
   if (d.vials) d.vials.forEach(v => { if (v.photo && !(typeof v.photo === 'string' && v.photo.startsWith('data:image/'))) v.photo = null; });
-  d.peptides.forEach(p => { p.category = ['steroid', 'other'].includes(p.category) ? p.category : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; });
+  d.peptides.forEach(p => { p.category = ['steroid', 'other'].includes(p.category) ? p.category : 'peptide'; p.everyDays = Number.isInteger(p.everyDays) && p.everyDays >= 1 && p.everyDays <= 365 ? p.everyDays : null; p.weekdays = Array.isArray(p.weekdays) ? [...new Set(p.weekdays.filter(n => Number.isInteger(n) && n >= 0 && n <= 6))] : null; if (p.weekdays && !p.weekdays.length) p.weekdays = null; });
   d.logs.forEach(l => { const ok = typeof l.amount === 'number' && isFinite(l.amount) && l.amount > 0 && UNITS.includes(l.unit); l.amount = ok ? l.amount : null; l.unit = ok ? l.unit : null; });
   if (!confirm(`Replace ALL current data with ${d.logs.length} entries, ${d.weights.length} weights, ${(d.metrics || []).length} measurements, ${(d.vials || []).length} vials?`)) return 'Import cancelled.';
   await DB.replaceAll({ peptides: d.peptides, logs: d.logs, weights: d.weights, vials: d.vials || [], metrics: d.metrics || [], symptoms: d.symptoms || [], courses: d.courses || [], health: d.health || [], meta: metaFor(d) });

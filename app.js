@@ -164,14 +164,16 @@ function peptideForm(r) {
     <label>Note (optional)<textarea name="o" maxlength="500">${esc(r && r.note)}</textarea></label>
     <label>Remind me every<div class="row"><input type="number" name="ev" min="1" max="365" inputmode="numeric" placeholder="(no reminder)" value="${r && r.everyDays ? (r.everyDays % 7 ? r.everyDays : r.everyDays / 7) : ''}"><select name="eu"><option value="1">days</option><option value="7" ${r && r.everyDays && r.everyDays % 7 === 0 ? 'selected' : ''}>weeks</option></select></div></label>
     <label>Reminder time<input type="time" name="at" value="${esc((r && r.at) || '09:00')}"></label>
-    <small>Reminders only repeat the interval you enter. The app does not suggest intervals or amounts.</small>`,
+    <fieldset class="fs"><legend>Or remind me on these weekdays</legend><div class="wdrow">${[0, 1, 2, 3, 4, 5, 6].map(i => `<label class="chk"><input type="checkbox" name="wd" value="${i}" ${r && r.weekdays && r.weekdays.includes(i) ? 'checked' : ''}>${wdName(i)}</label>`).join('')}</div></fieldset>
+    <small>Reminders only repeat the interval or weekdays you enter. The app does not suggest intervals or amounts.</small>`,
   async f => {
     const name = f.get('n').trim();
     if (!name) return 'Name is required.';
     if (S.peptides.some(p => p.name.toLowerCase() === name.toLowerCase() && (!r || p.id !== r.id))) return 'That name already exists.';
     const n = parseInt(f.get('ev'), 10), days = f.get('ev') ? n * +f.get('eu') : null;
     if (f.get('ev') && !(n >= 1 && days <= 365)) return 'Reminder interval must be between 1 and 365 days.';
-    await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: ['steroid', 'other'].includes(f.get('c')) ? f.get('c') : 'peptide', note: f.get('o').trim(), everyDays: days, at: f.get('at') || '09:00' });
+    const wd = f.getAll('wd').map(Number); if (wd.length && f.get('ev')) return 'Choose either an interval or weekdays, not both.';
+    await DB.put('peptides', { archived: false, created: new Date().toISOString(), ...(r || {}), name, category: ['steroid', 'other'].includes(f.get('c')) ? f.get('c') : 'peptide', note: f.get('o').trim(), everyDays: days, weekdays: wd.length ? wd : null, at: f.get('at') || '09:00' });
   });
 }
 const showLog = r => openDetail(pName(r.peptideId), `<p>${tag(cat(r.peptideId))}${fmtDT(r.ts)}</p>${r.amount ? `<p class="big">${fmtAmt(r)}</p>` : ''}${extraLines(r)}<p>${r.note ? esc(r.note) : '<span class="mu">No note</span>'}</p><small>Recorded event (not a schedule or recommendation)</small>`, () => logForm(r), () => DB.del('logs', r.id));
@@ -228,7 +230,7 @@ function vLog() {
   <label>From<input type="date" id="ff" value="${S.f.from}"></label><label>To<input type="date" id="ft" value="${S.f.to}"></label></div><label>Search<input type="search" id="fq" value="${esc(S.f.q)}" placeholder="entry, note, site, tag"></label>
   ${l.length ? `<ul>${l.map(r => `<li><button class="item" data-a="showlog" data-id="${r.id}">${tag(cat(r.peptideId))}<strong>${esc(pName(r.peptideId))}</strong><br><small>${fmtDT(r.ts)}${r.amount ? ' · ' + fmtAmt(r) : ''}${r.site ? ' · ' + esc(r.site) : ''}${r.note ? ' · ' + esc(r.note.slice(0, 40)) : ''}</small></button></li>`).join('')}</ul>` : empty(S.logs.length ? 'No records match the filters.' : 'No peptide records yet.')}</div>
   <div class="card"><h2>Entries</h2><button class="ghost" data-a="newpep">Add entry</button>
-  ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}${p.everyDays ? ' · every ' + p.everyDays + ' d' : ''}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button> ${p.everyDays ? `<button class="ghost" data-a="ics" data-id="${p.id}">Calendar</button>` : ''}<button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
+  ${S.peptides.length ? `<ul>${S.peptides.filter(p => S.cat === 'all' || (p.category || 'peptide') === S.cat).map(p => `<li class="row" style="align-items:center"><span style="flex:2">${tag(p.category || 'peptide')}${esc(p.name)} ${p.archived ? '<span class="tag">archived</span>' : ''}<br><small>${esc(p.note)} · created ${fmtD(p.created)}${hasSched(p) ? ' · ' + schedText(p) : ''}</small></span><button class="ghost" data-a="renpep" data-id="${p.id}">Edit</button> ${hasSched(p) ? `<button class="ghost" data-a="ics" data-id="${p.id}">Calendar</button>` : ''}<button class="ghost" data-a="arcpep" data-id="${p.id}">${p.archived ? 'Restore' : 'Archive'}</button></li>`).join('')}</ul>` : empty('No entries yet. Add your own names.')}</div>`;
 }
 function vWeight() {
   const w = weightsInRange(), all = [...S.weights].sort((a, b) => b.ts.localeCompare(a.ts));

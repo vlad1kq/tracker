@@ -88,3 +88,6 @@ nav{overflow-x:auto;scrollbar-width:none}nav::-webkit-scrollbar{display:none}
 .day.on{background:rgba(255,255,255,.28)}.day i{position:absolute;left:50%;bottom:5px;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:#64d2ff}
 .ba{position:relative;aspect-ratio:3/4;overflow:hidden;border-radius:18px;margin:8px 0;touch-action:pan-y}.ba img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .ba input{position:absolute;left:5%;width:90%;bottom:10px;margin:0;z-index:2;min-height:30px}.bl{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#fff;z-index:1;box-shadow:0 0 6px rgba(0,0,0,.6)}
+
+.wdrow{display:flex;flex-wrap:wrap;gap:2px 14px}.wdrow .chk{margin:4px 0}
+.icons{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0;text-align:center}.icons img{border-radius:14px;display:block;margin:0 auto 6px}
